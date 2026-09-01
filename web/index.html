@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Work Plan</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1 id="heading">Work Plan</h1>
+      <div id="progress"></div>
+    </header>
+
+    <div id="banner" class="hidden"></div>
+
+    <main id="list"></main>
+  </div>
+
+  <input type="file" id="file-input" accept="image/*,video/*" capture="environment" style="display: none" />
+
+  <div id="camera-view" class="hidden">
+    <video id="camera-video" playsinline muted autoplay></video>
+    <canvas id="camera-canvas" style="display: none"></canvas>
+    <button type="button" id="camera-cancel-btn" aria-label="Close camera">&times;</button>
+    <div id="camera-controls">
+      <span id="camera-controls-spacer"></span>
+      <button type="button" id="camera-shutter-btn" aria-label="Take photo"></button>
+      <button type="button" id="camera-video-btn">Video</button>
+    </div>
+  </div>
+
+  <div id="viewer" class="hidden">
+    <button type="button" id="viewer-close" aria-label="Close">&times;</button>
+    <div id="viewer-content"></div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

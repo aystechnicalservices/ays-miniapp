@@ -1,0 +1,519 @@
+:root {
+  --bg: var(--tg-theme-bg-color, #ffffff);
+  --text: var(--tg-theme-text-color, #111111);
+  --hint: var(--tg-theme-hint-color, #888888);
+  --link: var(--tg-theme-link-color, #2481cc);
+  --button: var(--tg-theme-button-color, #2481cc);
+  --button-text: var(--tg-theme-button-text-color, #ffffff);
+  --section-bg: var(--tg-theme-secondary-bg-color, #f2f2f2);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+#app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 12px 16px 32px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 8px 0 12px;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+#progress {
+  font-size: 14px;
+  color: var(--hint);
+}
+
+#history-list {
+  margin-top: 8px;
+}
+
+#history-detail.hidden { display: none; }
+
+#history-back-btn {
+  display: block;
+  margin-bottom: 14px;
+  padding: 8px 0;
+  border: none;
+  background: none;
+  color: var(--link);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#history-heading {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+#banner {
+  background: var(--section-bg);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+
+#banner.hidden { display: none; }
+
+#banner.all-done {
+  font-weight: 600;
+}
+
+.villa {
+  margin-bottom: 26px;
+}
+
+.villa-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 10px 4px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--section-bg);
+}
+
+.section {
+  margin-bottom: 18px;
+}
+
+.section-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--hint);
+  margin: 0 0 6px 4px;
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--section-bg);
+  margin-bottom: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.item.done { opacity: 0.6; }
+.item.uploading { outline: 2px solid var(--link); opacity: 0.8; cursor: default; }
+.item.selected { outline: 2px solid var(--link); }
+.item.selected .checkbox {
+  background: var(--link);
+  border-color: var(--link);
+  color: var(--button-text);
+}
+
+.checkbox {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid var(--hint);
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  margin-top: 1px;
+}
+
+.item.done .checkbox {
+  background: var(--link);
+  border-color: var(--link);
+  color: var(--button-text);
+}
+
+.item-body { flex: 1; }
+
+.item-text { font-size: 15px; line-height: 1.35; }
+
+.item-meta {
+  font-size: 12px;
+  color: var(--hint);
+  margin-top: 3px;
+}
+
+.media-icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+  cursor: pointer;
+}
+
+#camera-view {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 1500;
+}
+
+#camera-view.hidden { display: none; }
+
+#camera-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+#camera-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 24px 24px calc(24px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#camera-cancel-btn {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 26px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+  touch-action: manipulation;
+}
+
+#camera-video-btn {
+  min-width: 72px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+#camera-controls-spacer {
+  min-width: 72px;
+}
+
+#camera-shutter-btn {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 4px solid #fff;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  flex: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#camera-shutter-btn:active::before {
+  transform: scale(0.7);
+  opacity: 0.6;
+}
+
+/* While recording, the shutter is meaningless and Cancel means "discard". */
+#camera-view.recording #camera-shutter-btn {
+  visibility: hidden;
+}
+
+#camera-view.recording #camera-video-btn {
+  background: #e5484d;
+  font-weight: 600;
+}
+
+#camera-shutter-btn::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #fff;
+  transform: scale(0.82);
+  transition: transform 0.1s ease, opacity 0.1s ease;
+  pointer-events: none;
+}
+
+#viewer {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+#viewer.hidden { display: none; }
+
+#viewer-content {
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#viewer-content img,
+#viewer-content video {
+  max-width: 92vw;
+  max-height: 92vh;
+  border-radius: 8px;
+}
+
+#viewer-content .viewer-message {
+  color: #fff;
+  font-size: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
+#add-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+#add-form input[type="text"] {
+  flex: 1 1 140px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--section-bg);
+  background: var(--section-bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+#add-form button {
+  flex: none;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--button);
+  color: var(--button-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%) translateY(12px);
+  background: var(--text);
+  color: var(--bg);
+  padding: 12px 20px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 2000;
+  max-width: 90vw;
+  text-align: center;
+}
+
+#toast.hidden { display: none; }
+
+#toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+#select-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+#select-bar button {
+  flex: none;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--section-bg);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#send-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--section-bg);
+}
+
+#send-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#send-row.hidden { display: none; }
+
+#send-count {
+  font-size: 13px;
+  color: var(--hint);
+  margin-right: auto;
+}
+
+#update-plan-btn.hidden { display: none; }
+
+#update-plan-btn,
+#send-now-btn,
+#schedule-open-btn,
+#schedule-confirm-btn {
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: none;
+  background: var(--button);
+  color: var(--button-text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Must come after the shared rule above to win. Update is the safe everyday
+   action; "New plan" resets the day, so it's styled as secondary to steer
+   the boss toward the non-destructive one. */
+#send-now-btn {
+  background: var(--section-bg);
+  color: var(--text);
+}
+
+#schedule-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#schedule-picker.hidden { display: none; }
+
+#schedule-time-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+#schedule-hour,
+#schedule-minute {
+  width: 64px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--section-bg);
+  background: var(--section-bg);
+  color: var(--text);
+  font-size: 16px;
+  text-align: center;
+}
+
+#schedule-picker-actions {
+  display: flex;
+  gap: 8px;
+}
+
+#schedule-confirm-btn {
+  flex: 1;
+}
+
+#schedule-back-btn {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: none;
+  background: var(--section-bg);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#schedule-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--section-bg);
+  font-size: 13px;
+}
+
+#schedule-status.hidden { display: none; }
+
+#schedule-cancel-btn {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--link);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#viewer-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 26px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1001;
+}

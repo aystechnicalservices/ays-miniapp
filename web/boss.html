@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Library</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1 id="heading">Library</h1>
+    </header>
+
+    <div id="banner" class="hidden"></div>
+
+    <div id="progress"></div>
+
+    <form id="add-form">
+      <input type="text" id="add-text" placeholder="New item text" autocomplete="off" />
+      <input type="text" id="add-villa" placeholder="Villa" autocomplete="off" list="villa-list" />
+      <datalist id="villa-list"></datalist>
+      <input type="text" id="add-section" placeholder="Section (optional)" autocomplete="off" list="section-list" />
+      <datalist id="section-list"></datalist>
+      <button type="submit">Add to library</button>
+    </form>
+
+    <div id="select-bar">
+      <button type="button" id="select-all-btn">Select all</button>
+      <button type="button" id="deselect-all-btn">Deselect all</button>
+    </div>
+
+    <main id="list"></main>
+  </div>
+
+  <div id="send-bar">
+    <div id="schedule-status" class="hidden">
+      <span id="schedule-status-text"></span>
+      <button type="button" id="schedule-cancel-btn">Cancel</button>
+    </div>
+    <div id="send-row">
+      <span id="send-count">0 selected</span>
+      <button type="button" id="update-plan-btn" class="hidden">Update today</button>
+      <button type="button" id="send-now-btn">Send now</button>
+      <button type="button" id="schedule-open-btn">Schedule</button>
+    </div>
+    <div id="schedule-picker" class="hidden">
+      <div id="schedule-time-row">
+        <select id="schedule-hour"></select>
+        <span>:</span>
+        <select id="schedule-minute"></select>
+      </div>
+      <div id="schedule-picker-actions">
+        <button type="button" id="schedule-confirm-btn">Confirm</button>
+        <button type="button" id="schedule-back-btn">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="hidden"></div>
+
+  <script src="/static/boss.js"></script>
+</body>
+</html>
