@@ -116,11 +116,18 @@ def _tz() -> ZoneInfo:
     return ZoneInfo(config.TIMEZONE)
 
 
-def _plan_date_str():
+def _current_plan_date(tz):
+    """The local calendar date of the currently live plan, or None if
+    nothing's been sent yet."""
     sent_at = db.get_plan_sent_at()
     if not sent_at:
         return None
-    return datetime.fromisoformat(sent_at).astimezone(_tz()).strftime("%d/%m/%Y")
+    return datetime.fromisoformat(sent_at).astimezone(tz).date()
+
+
+def _plan_date_str():
+    d = _current_plan_date(_tz())
+    return d.strftime("%d/%m/%Y") if d else None
 
 
 class WhoAmIRequest(BaseModel):
@@ -387,10 +394,7 @@ def _boss_state(app: FastAPI):
 
 
 def _plan_already_sent_today(tz) -> bool:
-    sent_at = db.get_plan_sent_at()
-    if not sent_at:
-        return False
-    return datetime.fromisoformat(sent_at).astimezone(tz).date() == datetime.now(tz).date()
+    return _current_plan_date(tz) == datetime.now(tz).date()
 
 
 async def _fire_plan(app: FastAPI, item_ids: List[int]) -> None:

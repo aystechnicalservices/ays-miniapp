@@ -61,7 +61,7 @@ persisted job: **if the server restarts, a pending scheduled send is lost**
 (a proper persisted scheduler is spec section 9's slice 4, not built yet).
 
 Whenever a plan actually goes out (immediately or once a schedule fires):
-- everyone in `CREW_IDS` gets **"WORK PLAN FOR DD/MM/YYYY"** with a **WORK**
+- everyone in `CREW_IDS` gets **"Work Plan DD/MM/YYYY"** with a **WORK**
   button that opens the checklist Mini App;
 - every boss (`BOSS_ID` + `EXTRA_BOSS_IDS`) gets a confirmation too —
   **"Work Plan DD/MM/YYYY"** with an **Open checklist** button;
@@ -255,7 +255,7 @@ Fill in `.env`:
   (see below).
 - `EXTRA_BOSS_IDS` — other Telegram IDs also allowed into the library
   (comma-separated, optional).
-- `CREW_IDS` — worker Telegram IDs: get the "WORK PLAN FOR ..." message when
+- `CREW_IDS` — worker Telegram IDs: get the "Work Plan ..." message when
   a plan sends, and (together with `BOSS_ID`/`EXTRA_BOSS_IDS`) are the only
   IDs allowed to use the bot/Mini App at all (comma-separated). Get IDs from
   [@userinfobot](https://t.me/userinfobot), or from the "You're not
@@ -279,33 +279,43 @@ Fill in `.env`:
 
 ## 4. Expose the app over HTTPS
 
-Telegram requires the Mini App page to be served over HTTPS.
+Telegram requires the Mini App page to be served over HTTPS. This runs on
+whatever machine hosts it (a PC, or a phone under Termux) rather than a paid
+cloud host, so `ays.db` and the media cache stay on local disk — no
+persistent-disk billing, no wipe-on-redeploy risk. **Current setup:
+[Tailscale Funnel](https://tailscale.com/kb/1223/funnel)**, which gives a
+*permanent* public HTTPS address with a valid certificate, free, so
+BotFather only ever needs configuring once.
 
-**Current setup: Tailscale Funnel.** It gives a *permanent* public HTTPS
-address with a valid certificate, free, so BotFather only ever needs
-configuring once:
-
-```bash
-tailscale funnel --bg 8000
-```
-
-The address is `https://ays-checklist.tail993c5a.ts.net` and it does **not**
-change across restarts or reboots — the funnel config is stored by
-`tailscaled` and the Tailscale service starts automatically. If it ever
-stops, the command above restores the same URL. Check with
-`tailscale funnel status`.
-
-Funnel needs enabling once per tailnet; `tailscale funnel` prints a
-`login.tailscale.com/f/funnel?node=...` link if it isn't.
+1. Install Tailscale and sign in (`winget install --id tailscale.tailscale`
+   then `tailscale up` on Windows; see Tailscale's docs for other
+   platforms), and approve the machine.
+2. `tailscale funnel --bg 8000` — the first run prints a one-time
+   `login.tailscale.com/f/funnel?node=...` approval link; open it, approve
+   funnel on the tailnet, then re-run the command.
+3. This gives a permanent address of the form
+   `https://<machine>.<tailnet>.ts.net` (currently
+   `https://ays-checklist.tail993c5a.ts.net`) that does **not** change
+   across restarts or reboots — the funnel config is stored by `tailscaled`
+   and the Tailscale service starts automatically. If it ever stops, the
+   command above restores the same URL; check with `tailscale funnel
+   status`. Set the address as `PUBLIC_URL` in `.env`.
+4. Set Tailscale to start automatically on boot so the tunnel survives a
+   reboot. The Python server itself still needs a manual `python run.py`
+   after one.
 
 **Alternative for throwaway testing:** a
 [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
 (`cloudflared tunnel --url http://localhost:8000`) needs no account, but
 its hostname is **regenerated every time the tunnel restarts**, so a reboot
 silently breaks the Mini App for everyone until `PUBLIC_URL` and BotFather
-are both updated. That's the failure Tailscale Funnel exists to avoid here.
-(ngrok's free tier is worse still — it shows an interstitial warning page
-that Telegram's WebView can't click through.)
+are both updated — the exact failure Tailscale Funnel avoids. (ngrok's free
+tier is worse still — it shows an interstitial warning page that Telegram's
+WebView can't click through.)
+
+Still on polling rather than webhooks. Polling works fine on an always-on
+machine and avoids a config mode; webhook support is the tidier long-term
+option (`spec.md` section 8) but isn't built.
 
 ## 5. Register the Mini App URL with BotFather
 
@@ -344,41 +354,35 @@ This starts the web server and the bot (polling) together. Leave it running.
 2. Tap **Open library** → see every library item, grouped by villa then
    section, with items in the *current* plan pre-selected (highlighted).
 3. Type new item text, a **Villa** (autocompletes; defaults to `908`), and
-   optionally a section → **Add to library** — it's saved and auto-selected.
-4. Tap any item to toggle it in/out of the plan you're assembling, or use
-   **Select all** / **Deselect all**. Tap the **×** to delete an item from
-   the library entirely (blocked if it's in today's live plan).
+   optionally a section → **Add** — it's saved and auto-selected.
+4. Tap any item to toggle it in/out of the plan you're assembling, or use a
+   villa's **Select all** / **Deselect all** (in that villa's header) to
+   toggle every item in it at once. Tap the **×** to delete an item from the
+   library entirely, any time — if it's finished on today's checklist it
+   stays there regardless; see "Sending vs. updating" below.
 5. Tap **Send now**, or tap **Schedule** to open an hour/minute picker
-   (**Confirm** sends it, **Back** cancels), to replace the live worker
-   checklist (and reset all tick/finished state) with whatever's selected —
-   a "✅ Plan sent/scheduled" toast confirms it.
+   (**Confirm** sends it, **Back** cancels) — a "✅ Plan sent/scheduled"
+   toast confirms it.
 6. Reopen the worker checklist — it now shows "Work Plan DD/MM/YYYY" with
    exactly that set of items. If `CREW_IDS` is set, everyone in it also gets
-   a "WORK PLAN FOR DD/MM/YYYY" message with a WORK button.
+   a "Work Plan DD/MM/YYYY" message with a WORK button.
 
-## Hosting: Tailscale Funnel
+## Sending vs. updating
 
-The server runs on the boss's own PC (`python run.py`) and is exposed on the
-public internet via [Tailscale Funnel](https://tailscale.com/kb/1223/funnel),
-rather than a paid cloud host. This keeps `ays.db` and the media cache on
-local disk (no persistent-disk billing, no wipe-on-redeploy risk) while still
-giving a stable HTTPS URL Telegram can reach.
+**Send now** does one of two things, decided automatically by whether a plan
+has already gone out today:
 
-1. `winget install --id tailscale.tailscale`, then sign in
-   (`tailscale up`) and approve the machine.
-2. `tailscale funnel --bg 8000` — the first run prints a one-time approval
-   link; open it and approve funnel on the tailnet, then re-run the command.
-3. This gives a permanent address of the form
-   `https://<machine>.<tailnet>.ts.net`, which **does not change** across
-   restarts — unlike a quick tunnel (e.g. cloudflared), BotFather's Mini App
-   URL only ever needs setting once. Set it as `PUBLIC_URL` in `.env`.
-4. Set the Tailscale service to start automatically on boot (Tailscale's own
-   settings) so the tunnel survives a reboot. The Python server itself still
-   needs a manual `python run.py` after a reboot.
+- **Nothing sent yet today** — starts a fresh plan. Everything on it starts
+  unfinished.
+- **Already sent today** — updates that same plan in place instead of
+  starting over. A finished item keeps its tick, photo and who-did-it no
+  matter what happens in the library afterward, even if it's deselected or
+  deleted outright. An unfinished item not currently selected is dropped
+  from the checklist. Anything newly selected is added as a fresh,
+  unfinished entry.
 
-Still on polling rather than webhooks. Polling works fine on an always-on
-machine and avoids a config mode; webhook support is the tidier long-term
-option (`spec.md` section 8) but isn't built.
+Tomorrow, the first **Send now** starts a new plan again (a new day always
+gets a clean slate), which is also what keeps the Archive one entry per day.
 
 ## Notes / assumptions made
 
