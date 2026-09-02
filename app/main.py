@@ -452,9 +452,11 @@ async def api_boss_library_remove(req: RemoveItemRequest, request: Request):
 
 @app.post("/api/boss/send-plan")
 async def api_boss_send_plan(req: SendPlanRequest, request: Request):
+    # Empty item_ids is valid: on a same-day re-send it means "clear every
+    # unfinished task" (finished ones are untouched regardless — see
+    # db.update_plan); on a fresh send it means "send an empty checklist",
+    # which is an unusual choice but the boss's to make.
     _authenticate_boss(req.init_data)
-    if not req.item_ids:
-        raise HTTPException(status_code=400, detail="Select at least one item")
 
     app = request.app
     _cancel_pending(app)

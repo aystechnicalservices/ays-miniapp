@@ -311,10 +311,6 @@ async function removeItem(itemId) {
 
 async function sendPlan(sendAt) {
   if (busy) return;
-  if (selectedIds.size === 0) {
-    showBanner("Select at least one item first.");
-    return;
-  }
   busy = true;
   try {
     const res = await fetch("/api/boss/send-plan", {
