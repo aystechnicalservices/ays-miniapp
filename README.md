@@ -280,41 +280,60 @@ Fill in `.env`:
 ## 4. Expose the app over HTTPS
 
 Telegram requires the Mini App page to be served over HTTPS. This runs on
-whatever machine hosts it (a PC, or a phone under Termux) rather than a paid
-cloud host, so `ays.db` and the media cache stay on local disk — no
-persistent-disk billing, no wipe-on-redeploy risk. **Current setup:
-[Tailscale Funnel](https://tailscale.com/kb/1223/funnel)**, which gives a
-*permanent* public HTTPS address with a valid certificate, free, so
-BotFather only ever needs configuring once.
+whatever machine hosts it (currently an Android phone under Termux; a PC
+works the same way) rather than a paid cloud host, so `ays.db` and the
+media cache stay on local disk — no persistent-disk billing, no
+wipe-on-redeploy risk. **Current setup: a named
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)**
+on a subdomain of a domain already on Cloudflare
+(`checklist.aystechnicalservices.ae`), which gives a *permanent* public
+HTTPS address, free, so BotFather only ever needs configuring once.
 
-1. Install Tailscale and sign in (`winget install --id tailscale.tailscale`
-   then `tailscale up` on Windows; see Tailscale's docs for other
-   platforms), and approve the machine.
-2. `tailscale funnel --bg 8000` — the first run prints a one-time
-   `login.tailscale.com/f/funnel?node=...` approval link; open it, approve
-   funnel on the tailnet, then re-run the command.
-3. This gives a permanent address of the form
-   `https://<machine>.<tailnet>.ts.net` (currently
-   `https://ays-checklist.tail993c5a.ts.net`) that does **not** change
-   across restarts or reboots — the funnel config is stored by `tailscaled`
-   and the Tailscale service starts automatically. If it ever stops, the
-   command above restores the same URL; check with `tailscale funnel
-   status`. Set the address as `PUBLIC_URL` in `.env`.
-4. Set Tailscale to start automatically on boot so the tunnel survives a
-   reboot. The Python server itself still needs a manual `python run.py`
-   after one.
+(Tailscale Funnel was tried first and worked fine on a PC, but the
+official `tailscaled` binary crashes on this phone specifically — a
+Bionic-libc/ARM32 incompatibility in Tailscale's Go networking code,
+not fixable from here. Cloudflare's tunnel has no such issue.)
 
-**Alternative for throwaway testing:** a
-[Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
-(`cloudflared tunnel --url http://localhost:8000`) needs no account, but
-its hostname is **regenerated every time the tunnel restarts**, so a reboot
-silently breaks the Mini App for everyone until `PUBLIC_URL` and BotFather
-are both updated — the exact failure Tailscale Funnel avoids. (ngrok's free
-tier is worse still — it shows an interstitial warning page that Telegram's
-WebView can't click through.)
+Setup (one-time, from any machine — the tunnel isn't tied to whichever
+device you set it up on):
+
+1. `cloudflared tunnel login` — opens a browser to authorize `cloudflared`
+   against the Cloudflare account that manages the domain; pick that
+   zone when prompted. Saves `cert.pem` to `~/.cloudflared/`.
+2. `cloudflared tunnel create ays-checklist` — creates the tunnel and
+   writes a credentials JSON file (`~/.cloudflared/<tunnel-id>.json`,
+   contains a secret — treat it like `BOT_TOKEN`) to that same directory.
+3. `cloudflared tunnel route dns ays-checklist checklist.aystechnicalservices.ae`
+   — adds **only** a CNAME for that one subdomain, pointing to
+   `<tunnel-id>.cfargotunnel.com`. Doesn't touch the root domain or any
+   other record.
+4. A config file at `~/.cloudflared/config.yml`:
+   ```yaml
+   tunnel: <tunnel-id>
+   credentials-file: /path/to/<tunnel-id>.json
+   ingress:
+     - hostname: checklist.aystechnicalservices.ae
+       service: http://localhost:8000
+     - service: http_status:404
+   ```
+5. Run it: `cloudflared --config ~/.cloudflared/config.yml tunnel run ays-checklist`.
+
+To actually run this on the phone: do steps 1–4 wherever's convenient
+(typing a URL and a JSON secret into a phone keyboard is painful), then
+copy just the credentials JSON and `config.yml` over to the phone's
+`~/.cloudflared/` and run step 5 there.
+
+**On Termux specifically:** grab a wake lock (`termux-wake-lock`) and
+exempt Termux from Android's battery optimization, or the OS will kill
+the background `cloudflared`/`python run.py` processes after a while.
+After a phone reboot, both need restarting manually
+(`nohup cloudflared --config ~/.cloudflared/config.yml tunnel run
+ays-checklist &`, `nohup python run.py &`, each followed by `disown`) —
+the hostname itself doesn't change, so no `PUBLIC_URL`/BotFather update
+is ever needed again, just restarting the two processes.
 
 Still on polling rather than webhooks. Polling works fine on an always-on
-machine and avoids a config mode; webhook support is the tidier long-term
+device and avoids a config mode; webhook support is the tidier long-term
 option (`spec.md` section 8) but isn't built.
 
 ## 5. Register the Mini App URL with BotFather
@@ -323,7 +342,7 @@ In [@BotFather](https://t.me/BotFather): `/mybots` → your bot → **Bot
 Settings** → **Configure Mini App** (older BotFather versions call this
 **Menu Button** → **Configure menu button**) → set it to your `PUBLIC_URL`.
 
-With Tailscale Funnel this is a one-time step, since the URL is stable.
+This is a one-time step, since the tunnel's hostname is permanent.
 
 ## 6. Run
 
