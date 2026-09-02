@@ -16,22 +16,24 @@ CREW_IDS = {
     int(x) for x in os.environ.get("CREW_IDS", "").split(",") if x.strip()
 }  # who gets the "WORK PLAN FOR ..." notification when a plan is sent
 ALLOWED_IDS = BOSS_IDS | CREW_IDS  # only these Telegram IDs may use the bot/Mini App
+# Temporarily locks the crew out (bosses keep full access) so a plan can be
+# rearranged mid-day without workers seeing a half-finished state. Editing the
+# *library* alone never affects workers — only sending a plan does — so this
+# is only needed when testing a send.
+MAINTENANCE_MODE = os.environ.get("MAINTENANCE_MODE", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 TIMEZONE = os.environ.get("TIMEZONE", "Asia/Dubai")
-PUBLIC_URL = os.environ.get("PUBLIC_URL", "")
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8000"))
 
-PUBLIC_URL = PUBLIC_URL.rstrip("/")
-
-# Everything that must survive a restart lives here. On Render the container
-# filesystem is wiped on every deploy, so DATA_DIR has to point at a mounted
-# persistent disk (see render.yaml) or the database and cached media are lost.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.environ.get("DATA_DIR") or PROJECT_ROOT)
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-DB_PATH = DATA_DIR / "ays.db"
-MEDIA_CACHE_DIR = DATA_DIR / "media_cache"
+DB_PATH = PROJECT_ROOT / "ays.db"
+MEDIA_CACHE_DIR = PROJECT_ROOT / "media_cache"
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set. Copy .env.example to .env and fill it in.")

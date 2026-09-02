@@ -2,14 +2,18 @@
 
 Model:
 - library_items: the boss's persistent, reusable task bank, each tagged with
-  a villa.
+  a villa. `retired` items are hidden from the library view but never
+  hard-deleted if any plan generation, past or present, ever used them —
+  plan_items.library_item_id is a real foreign key, so deleting one referenced
+  by archive history would fail outright (or, worse, silently corrupt the
+  archive's ability to show what a past task actually was).
 - plans: one row per "send" — each plan generation has its own sent_at.
 - plan_items: a generation's assembled checklist — references library_items
   by id, tagged with the plan generation (plan_id) it belongs to. Sending a
   new plan does NOT delete old plan_items/item_state: those stay in the
   database as the archive for past days. Only the latest plan generation
   (MAX(plans.id)) is "current" — that's what the worker checklist, the
-  library's "active" highlighting, and library-item deletion all look at.
+  library's "active" highlighting, and library-item removal all look at.
 - item_state: tick/done state per plan_item (1 row per plan_item, keyed by
   its id — never reused across generations, so history stays intact).
 """
@@ -22,35 +26,99 @@ from . import config
 
 DEFAULT_VILLA = "908"
 
+# (villa, section, text)
 SEED_ITEMS = [
-    # (section, text)
-    ("Full Area Cleaning", "blow the entire yard"),
-    ("Full Area Cleaning", "remove leaves and plant debris"),
-    ("Full Area Cleaning", "clean the areas under the bushes"),
-    ("Full Area Cleaning", "remove rubbish from corners and hard-to-reach areas"),
-    ("Full Area Cleaning", "collect and dispose of all rubbish"),
-    ("Washing", "wash the main entrance"),
-    ("Washing", "wash dirty pathways"),
-    ("Washing", "clean the area around the swimming pool"),
-    ("Washing", "wash the BBQ area and the work surface"),
-    ("Swimming Pool", "vacuum the swimming pool"),
-    ("Swimming Pool", "brush the pool walls and floor"),
-    ("Swimming Pool", "test the pool water and send the results"),
-    ("Swimming Pool", "remove debris from the water surface"),
-    ("Swimming Pool", "clean and arrange the area around the swimming pool"),
-    ("Plant Trimming", "trim bushes that have lost their shape"),
-    ("Plant Trimming", "level the edges of the plants"),
-    ("Plant Trimming", "remove unnecessary and protruding branches"),
-    ("Plant Trimming", "tidy the bonsai garden"),
-    ("Plant Trimming", "remove weeds"),
-    ("Inspection", "inspect the entrance area"),
-    ("Inspection", "inspect the BBQ area"),
-    ("Inspection", "check lights, covers, grilles, and visible damage"),
-    ("Inspection", "check for dry, damaged, or dying plants"),
-    ("Final Cleaning", "blow the entire area again"),
-    ("Final Cleaning", "remove all tools and materials"),
-    ("Final Cleaning", "make sure the pathways and entrance are clean"),
-    ("Final Cleaning", "record and send a final video overview"),
+    # --- Villa 908 ---
+    ("908", "Area Cleaning", "Check the villa area and find any urgent work."),
+    ("908", "Area Cleaning", "Remove leaves, plant waste and all rubbish."),
+    ("908", "Area Cleaning", "Clean under the bushes."),
+    ("908", "Area Cleaning", "Clean all corners and hard-to-reach areas."),
+    ("908", "Area Cleaning", "Clean the area in front of the entrance and outside the gate."),
+    ("908", "Area Cleaning", "Clean the garden and the full villa area properly."),
+    ("908", "Area Cleaning", "Remove weeds."),
+    ("908", "Area Cleaning", "Blow the full area."),
+    ("908", "Washing", "Wash the yard."),
+    ("908", "Washing", "Wash the entrance area."),
+    ("908", "Washing", "Wash the walkways."),
+    ("908", "Washing", "Wash the BBQ area."),
+    ("908", "Washing", "Use the water jet machine where needed."),
+    ("908", "Washing", "Wash the roof."),
+    ("908", "Washing", "Wash the toilet."),
+    ("908", "Washing", "Wash the outdoor furniture."),
+    ("908", "Washing", "Wash the staff / service room."),
+    ("908", "Washing", "If needed, use Clorox for deep cleaning of the room and toilet."),
+    ("908", "Swimming Pool", "Clean the swimming pool."),
+    ("908", "Swimming Pool", "Vacuum the pool floor."),
+    ("908", "Swimming Pool", "Brush the walls and floor."),
+    ("908", "Swimming Pool", "Check the pump room for any water leaks."),
+    ("908", "Swimming Pool", "Test the pool water and send the test results."),
+    ("908", "Swimming Pool", "Based on the water test, use AI to calculate how much chemical is needed."),
+    ("908", "Swimming Pool", "Add chlorine and pH- only if needed."),
+    ("908", "Swimming Pool", "After adding chemicals, report what chemical was added and how much."),
+    ("908", "Swimming Pool", "Send a photo of the water test result."),
+    ("908", "Garden", "Trim the bonsai garden."),
+    ("908", "Garden", "Trim plants near the garage."),
+    ("908", "Garden", "Cut the grass."),
+    ("908", "Garden", "Trim the bushes along the swimming pool."),
+    ("908", "Garden", "Cut dry branches."),
+    ("908", "Garden", "Remove dead bushes."),
+    ("908", "Garden", "Give extra water to plants if needed."),
+    ("908", "Garden", "Deep water the plants using the big hose."),
+    ("908", "Garden", "Spray pesticide if needed."),
+    ("908", "Garden", "Plant new plants as instructed."),
+    ("908", "Irrigation", "Check the irrigation system."),
+    ("908", "Irrigation", "Check all irrigation zones."),
+    ("908", "Irrigation", "Check for water leaks."),
+    ("908", "Irrigation", "Check all drippers and emitters."),
+    ("908", "Irrigation", "Check that every plant is getting enough water."),
+    # --- Villa 1002 ---
+    ("1002", "Area Cleaning", "Remove leaves and plant waste."),
+    ("1002", "Area Cleaning", "Remove rubbish from under the bushes."),
+    ("1002", "Area Cleaning", "Clean all corners and hard-to-reach areas."),
+    ("1002", "Area Cleaning", "Collect all rubbish."),
+    ("1002", "Area Cleaning", "Throw away all rubbish."),
+    ("1002", "Area Cleaning", "Blow the full villa area."),
+    ("1002", "Area Cleaning", "After finishing, check the full area carefully and make sure everything is clean."),
+    ("1002", "Washing", "Wash the full yard."),
+    ("1002", "Washing", "Use the water jet machine / pressure washer."),
+    ("1002", "Washing", "If needed, use two water jet machines."),
+    ("1002", "Irrigation", "Start and check every irrigation zone."),
+    ("1002", "Irrigation", "Check all sprinklers."),
+    ("1002", "Irrigation", "Check all drip emitters."),
+    ("1002", "Irrigation", "Check for water leaks."),
+    ("1002", "Irrigation", "Check for blocked emitters."),
+    ("1002", "Irrigation", "Take photos/videos of all problems."),
+    ("1002", "Irrigation", "Water each required zone for enough time."),
+    ("1002", "Garden", "Trim bushes and trees."),
+    ("1002", "Garden", "Shape the plants along the house."),
+    ("1002", "Garden", "Shape the plants along the fence."),
+    ("1002", "Garden", "Remove dry/dead plants."),
+    ("1002", "Garden", "Remove weeds."),
+    ("1002", "Garden", "Water the bushes with the hose."),
+    ("1002", "Garden", "Plant new plants as instructed."),
+    ("1002", "Garden", "Trim the bonsai garden."),
+    # --- Living Legends ---
+    ("Living Legends", "Swimming Pool", "Clean the swimming pool."),
+    ("Living Legends", "Swimming Pool", "Vacuum the pool."),
+    ("Living Legends", "Swimming Pool", "Brush the pool walls and floor."),
+    ("Living Legends", "Swimming Pool", "Test the pool water."),
+    ("Living Legends", "Swimming Pool", "Send the water test results."),
+    ("Living Legends", "Villa Yard and Area", "Blow the full area."),
+    ("Living Legends", "Villa Yard and Area", "Remove all rubbish."),
+    ("Living Legends", "Villa Yard and Area", "Remove weeds."),
+    ("Living Legends", "Villa Yard and Area", "Clean all flower beds."),
+    ("Living Legends", "Villa Yard and Area", "Wash the yard with the water jet machine / pressure washer."),
+    ("Living Legends", "Villa Yard and Area", "Make sure the full villa area is clean and tidy."),
+    ("Living Legends", "Desert Area Behind the Fence", "Clean the area."),
+    ("Living Legends", "Desert Area Behind the Fence", "Water the trees."),
+    ("Living Legends", "Desert Area Behind the Fence", "Water the trees deeply around the roots."),
+    ("Living Legends", "Desert Area Behind the Fence", "Remove weeds."),
+    ("Living Legends", "Desert Area Behind the Fence", "Spray the trees if needed."),
+    ("Living Legends", "Garden", "Water the fruit trees."),
+    ("Living Legends", "Garden", "Water the bushes."),
+    ("Living Legends", "Garden", "Clean and maintain the flower beds."),
+    ("Living Legends", "Garden", "Trim and shape the plants."),
+    ("Living Legends", "Garden", "Prepare the area for new planting."),
 ]
 
 
@@ -70,6 +138,11 @@ def get_conn():
         conn.close()
 
 
+def _has_column(conn, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(r["name"] == column for r in rows)
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.execute(
@@ -80,10 +153,14 @@ def init_db() -> None:
                 section TEXT NOT NULL,
                 text TEXT NOT NULL,
                 sort_order INTEGER NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                retired INTEGER NOT NULL DEFAULT 0
             )
             """
         )
+        if not _has_column(conn, "library_items", "retired"):
+            conn.execute("ALTER TABLE library_items ADD COLUMN retired INTEGER NOT NULL DEFAULT 0")
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS plans (
@@ -119,11 +196,11 @@ def init_db() -> None:
         row = conn.execute("SELECT COUNT(*) AS n FROM library_items").fetchone()
         if row["n"] == 0:
             now = _now()
-            for i, (section, text) in enumerate(SEED_ITEMS):
+            for i, (villa, section, text) in enumerate(SEED_ITEMS):
                 conn.execute(
                     "INSERT INTO library_items (villa, section, text, sort_order, created_at) "
                     "VALUES (?, ?, ?, ?, ?)",
-                    (DEFAULT_VILLA, section, text, i, now),
+                    (villa, section, text, i, now),
                 )
 
 
@@ -146,24 +223,23 @@ def send_plan(library_item_ids: list[int]) -> None:
         _replace_plan(conn, library_item_ids)
 
 
-def update_plan(library_item_ids: list[int]) -> dict:
-    """Edit the plan that's already live, instead of starting a new one.
-
-    Items already on the plan keep their tick state and media — the whole
-    point, so the boss can adjust the day's work without wiping out what the
-    crew has already finished. Finished items are never removed, even if
-    deselected, since that would discard the photo and the record of who did
-    it; those are reported back as `kept_finished` so the UI can say so.
-    """
-    wanted = list(dict.fromkeys(library_item_ids))
+def update_plan(library_item_ids: list[int]) -> None:
+    """Applies a new selection to the plan that's already live, in place —
+    used when the boss re-sends during the same day it was first sent, so a
+    tweak mid-day doesn't wipe the crew's progress. A finished item is never
+    touched, no matter what the new selection says: it keeps its tick,
+    photo and timestamp forever, even if deselected or deleted from the
+    library entirely. An unfinished item not in the new selection is
+    dropped outright. Anything newly selected that isn't already on the
+    plan is added as a fresh, unfinished entry."""
     with get_conn() as conn:
-        row = conn.execute("SELECT MAX(id) AS id FROM plans").fetchone()
-        plan_id = row["id"] if row else None
+        plan_row = conn.execute("SELECT MAX(id) AS id FROM plans").fetchone()
+        plan_id = plan_row["id"]
         if plan_id is None:
-            _replace_plan(conn, wanted)
-            return {"added": len(wanted), "removed": 0, "kept_finished": 0}
+            _replace_plan(conn, library_item_ids)
+            return
 
-        current = conn.execute(
+        existing = conn.execute(
             """
             SELECT plan_items.id, plan_items.library_item_id, item_state.done
             FROM plan_items
@@ -172,51 +248,32 @@ def update_plan(library_item_ids: list[int]) -> dict:
             """,
             (plan_id,),
         ).fetchall()
-        by_library_id = {r["library_item_id"]: r for r in current}
 
-        added = removed = kept_finished = 0
+        selected = set(library_item_ids)
+        existing_lib_ids = {r["library_item_id"] for r in existing}
 
-        for library_item_id, item in by_library_id.items():
-            if library_item_id in wanted:
-                continue
-            if item["done"]:
-                kept_finished += 1
-                continue
-            conn.execute("DELETE FROM item_state WHERE item_id = ?", (item["id"],))
-            conn.execute("DELETE FROM plan_items WHERE id = ?", (item["id"],))
-            removed += 1
+        for row in existing:
+            if not row["done"] and row["library_item_id"] not in selected:
+                conn.execute("DELETE FROM item_state WHERE item_id = ?", (row["id"],))
+                conn.execute("DELETE FROM plan_items WHERE id = ?", (row["id"],))
 
-        next_order = conn.execute(
+        next_sort_row = conn.execute(
             "SELECT COALESCE(MAX(sort_order), -1) AS m FROM plan_items WHERE plan_id = ?",
             (plan_id,),
-        ).fetchone()["m"]
-        for library_item_id in wanted:
-            if library_item_id in by_library_id:
-                continue
-            next_order += 1
-            cur = conn.execute(
-                "INSERT INTO plan_items (plan_id, library_item_id, sort_order) VALUES (?, ?, ?)",
-                (plan_id, library_item_id, next_order),
-            )
-            conn.execute("INSERT INTO item_state (item_id, done) VALUES (?, 0)", (cur.lastrowid,))
-            added += 1
-
-        return {"added": added, "removed": removed, "kept_finished": kept_finished}
-
-
-def get_current_plan_progress():
-    """(total, finished) for the live plan — lets the boss UI warn before a
-    replace-everything send throws away finished work."""
-    with get_conn() as conn:
-        row = conn.execute(
-            """
-            SELECT COUNT(*) AS total, COALESCE(SUM(item_state.done), 0) AS done
-            FROM plan_items
-            JOIN item_state ON item_state.item_id = plan_items.id
-            WHERE plan_items.plan_id = (SELECT MAX(id) FROM plans)
-            """
         ).fetchone()
-        return row["total"], row["done"]
+        next_sort = next_sort_row["m"] + 1
+        for library_item_id in library_item_ids:
+            if library_item_id in existing_lib_ids:
+                continue
+            item_cur = conn.execute(
+                "INSERT INTO plan_items (plan_id, library_item_id, sort_order) VALUES (?, ?, ?)",
+                (plan_id, library_item_id, next_sort),
+            )
+            conn.execute(
+                "INSERT INTO item_state (item_id, done) VALUES (?, 0)",
+                (item_cur.lastrowid,),
+            )
+            next_sort += 1
 
 
 def get_plan_sent_at():
@@ -373,10 +430,11 @@ def get_item_text(item_id: int):
 
 
 def list_library():
-    """All library items, plus which ones are in the current plan generation."""
+    """Non-retired library items, plus which ones are in the current plan."""
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, villa, section, text, sort_order FROM library_items ORDER BY sort_order"
+            "SELECT id, villa, section, text, sort_order FROM library_items "
+            "WHERE retired = 0 ORDER BY sort_order"
         ).fetchall()
         active_rows = conn.execute(
             "SELECT DISTINCT library_item_id FROM plan_items "
@@ -409,16 +467,24 @@ def add_library_item(villa: str, section: str, text: str) -> int:
 
 
 def remove_library_item(item_id: int) -> tuple[bool, str]:
-    """Returns (ok, error_message)."""
+    """Returns (ok, error_message). Always allowed, even for an item on
+    today's live plan — deleting only removes it from the library going
+    forward. A finished plan_item referencing it is untouched (stays done
+    on the checklist forever); an unfinished one is only dropped once the
+    boss re-sends without it (see update_plan). Hard-deletes if the item
+    was never used in any plan; otherwise marks it retired (hidden from the
+    library) rather than deleting, since plan_items.library_item_id is a
+    real foreign key and a hard delete would fail — or, if it somehow
+    didn't, would leave the archive unable to show what a past task
+    actually was."""
     with get_conn() as conn:
-        in_use = conn.execute(
-            "SELECT 1 FROM plan_items WHERE library_item_id = ? "
-            "AND plan_id = (SELECT MAX(id) FROM plans) LIMIT 1",
-            (item_id,),
+        ever_used = conn.execute(
+            "SELECT 1 FROM plan_items WHERE library_item_id = ? LIMIT 1", (item_id,)
         ).fetchone()
-        if in_use:
-            return False, "This item is in today's plan — send a new plan without it first."
-        cur = conn.execute("DELETE FROM library_items WHERE id = ?", (item_id,))
+        if ever_used:
+            cur = conn.execute("UPDATE library_items SET retired = 1 WHERE id = ?", (item_id,))
+        else:
+            cur = conn.execute("DELETE FROM library_items WHERE id = ?", (item_id,))
         if cur.rowcount == 0:
             return False, "Item not found."
         return True, ""

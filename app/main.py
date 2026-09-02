@@ -48,29 +48,39 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+
+
+# Telegram's in-app browsers cache Mini App assets hard, and there's no way to
+# force-refresh from a phone. That produced a genuinely confusing bug: a new
+# button appeared on iOS but not Android, because Android was still running a
+# stale boss.js. These files are a few KB, so always serve them fresh rather
+# than ever debug that again.
+NO_STORE = {"Cache-Control": "no-store, must-revalidate"}
+
+
+class NoCacheStaticFiles(StaticFiles):
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers.update(NO_STORE)
+        return response
+
+
+app.mount("/static", NoCacheStaticFiles(directory=WEB_DIR), name="static")
 
 
 @app.get("/")
 async def index():
-    return FileResponse(WEB_DIR / "index.html")
+    return FileResponse(WEB_DIR / "index.html", headers=NO_STORE)
 
 
 @app.get("/boss")
 async def boss_page():
-    return FileResponse(WEB_DIR / "boss.html")
+    return FileResponse(WEB_DIR / "boss.html", headers=NO_STORE)
 
 
 @app.get("/archive")
 async def archive_page():
-    return FileResponse(WEB_DIR / "archive.html")
-
-
-@app.get("/healthz")
-async def healthz():
-    """Unauthenticated so Render's health check (and any uptime pinger) can
-    reach it. Deliberately exposes nothing beyond liveness."""
-    return {"ok": True}
+    return FileResponse(WEB_DIR / "archive.html", headers=NO_STORE)
 
 
 class ChecklistRequest(BaseModel):
@@ -86,6 +96,11 @@ def _authenticate(init_data: str):
             status_code=403,
             detail=f"You're not registered yet. Your Telegram ID is {user['id']}. "
             "Ask the boss to add you.",
+        )
+    if config.MAINTENANCE_MODE and user["id"] not in config.BOSS_IDS:
+        raise HTTPException(
+            status_code=503,
+            detail="The work plan is being updated. Please check back in a few minutes.",
         )
     return user
 
@@ -183,8 +198,11 @@ def _cache_evict() -> None:
 
 def _extract_file_id(msg):
     """Telegram decides for itself how to classify an upload, so read the
-    file_id off whichever attribute it actually populated."""
-    for attr in ("video", "document", "animation", "audio", "voice"):
+    file_id off whichever attribute it actually populated. Only photo/video/
+    document are possible here: send_photo can only yield a photo, and
+    send_video/send_document (the only two calls we ever make for video) can
+    only yield a video or a document."""
+    for attr in ("video", "document"):
         media = getattr(msg, attr, None)
         if media is not None:
             return media.file_id
@@ -361,19 +379,30 @@ def _schedule_info(app: FastAPI):
 
 
 def _boss_state(app: FastAPI):
-    total, done = db.get_current_plan_progress()
     return {
         "library": db.list_library(),
         "pending_schedule": _schedule_info(app),
         "plan_date": _plan_date_str(),
-        "plan_total": total,
-        "plan_done": done,
     }
 
 
+def _plan_already_sent_today(tz) -> bool:
+    sent_at = db.get_plan_sent_at()
+    if not sent_at:
+        return False
+    return datetime.fromisoformat(sent_at).astimezone(tz).date() == datetime.now(tz).date()
+
+
 async def _fire_plan(app: FastAPI, item_ids: List[int]) -> None:
-    db.send_plan(item_ids)
-    date_str = datetime.now(_tz()).strftime("%d/%m/%Y")
+    tz = _tz()
+    if _plan_already_sent_today(tz):
+        # Same-day re-send: update the live plan in place instead of
+        # starting a new generation, so finished items (tick, photo, who)
+        # aren't wiped by a mid-day tweak.
+        db.update_plan(item_ids)
+    else:
+        db.send_plan(item_ids)
+    date_str = datetime.now(tz).strftime("%d/%m/%Y")
     bot = app.state.bot_application.bot
     await bot_module.notify_crew(bot, date_str)
     await bot_module.notify_boss_sent(bot, date_str)
@@ -455,22 +484,6 @@ async def api_boss_cancel_schedule(req: CancelScheduleRequest, request: Request)
     _authenticate_boss(req.init_data)
     _cancel_pending(request.app)
     return _boss_state(request.app)
-
-
-class UpdatePlanRequest(BaseModel):
-    init_data: str
-    item_ids: List[int]
-
-
-@app.post("/api/boss/update-plan")
-async def api_boss_update_plan(req: UpdatePlanRequest, request: Request):
-    """Edit the live plan in place, so mid-day changes don't wipe out work the
-    crew has already finished (which is what send-plan does by design)."""
-    _authenticate_boss(req.init_data)
-    if not req.item_ids:
-        raise HTTPException(status_code=400, detail="Select at least one item")
-    result = db.update_plan(req.item_ids)
-    return {**_boss_state(request.app), "changes": result}
 
 
 class HistoryPlanRequest(BaseModel):

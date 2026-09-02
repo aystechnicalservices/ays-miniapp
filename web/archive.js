@@ -6,10 +6,6 @@ if (tg) {
 
 const bannerEl = document.getElementById("banner");
 const historyListEl = document.getElementById("history-list");
-const historyDetailEl = document.getElementById("history-detail");
-const historyBackBtn = document.getElementById("history-back-btn");
-const historyHeadingEl = document.getElementById("history-heading");
-const historyItemsEl = document.getElementById("history-items");
 
 const viewerEl = document.getElementById("viewer");
 const viewerContentEl = document.getElementById("viewer-content");
@@ -61,6 +57,8 @@ async function loadHistoryList() {
   }
 }
 
+let expandedPlanId = null;
+
 function renderHistoryList(plans) {
   historyListEl.innerHTML = "";
   if (plans.length === 0) {
@@ -68,6 +66,9 @@ function renderHistoryList(plans) {
     return;
   }
   for (const plan of plans) {
+    const entry = document.createElement("div");
+    entry.className = "history-entry";
+
     const row = document.createElement("div");
     row.className = "item";
 
@@ -83,16 +84,31 @@ function renderHistoryList(plans) {
     body.appendChild(meta);
     row.appendChild(body);
 
-    row.addEventListener("click", () => loadHistoryDetail(plan));
-    historyListEl.appendChild(row);
+    const detail = document.createElement("div");
+    detail.className = "history-detail hidden";
+
+    row.addEventListener("click", () => togglePlanDetail(plan, detail));
+
+    entry.appendChild(row);
+    entry.appendChild(detail);
+    historyListEl.appendChild(entry);
   }
 }
 
-async function loadHistoryDetail(plan) {
-  historyHeadingEl.textContent = `${plan.date} at ${plan.time}`;
-  historyItemsEl.innerHTML = '<div class="item-meta">Loading...</div>';
-  historyListEl.classList.add("hidden");
-  historyDetailEl.classList.remove("hidden");
+async function togglePlanDetail(plan, detailEl) {
+  const isOpen = expandedPlanId === plan.id;
+
+  for (const other of historyListEl.querySelectorAll(".history-detail")) {
+    other.classList.add("hidden");
+    other.innerHTML = "";
+  }
+  expandedPlanId = null;
+
+  if (isOpen) return;
+
+  expandedPlanId = plan.id;
+  detailEl.classList.remove("hidden");
+  detailEl.innerHTML = '<div class="item-meta">Loading...</div>';
 
   try {
     const res = await fetch("/api/boss/history/plan", {
@@ -102,19 +118,19 @@ async function loadHistoryDetail(plan) {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      historyItemsEl.innerHTML = "";
+      detailEl.innerHTML = "";
       showBanner(body.detail || "Could not load that plan.");
       return;
     }
     const data = await res.json();
-    renderHistoryItems(data.items);
+    renderHistoryItems(data.items, detailEl);
   } catch (err) {
-    historyItemsEl.innerHTML = "";
+    detailEl.innerHTML = "";
     showBanner("Network error loading that plan.");
   }
 }
 
-function renderHistoryItems(items) {
+function renderHistoryItems(items, container) {
   const villas = [];
   const byVilla = new Map();
   for (const item of items) {
@@ -125,7 +141,7 @@ function renderHistoryItems(items) {
     byVilla.get(item.villa).push(item);
   }
 
-  historyItemsEl.innerHTML = "";
+  container.innerHTML = "";
   for (const villa of villas) {
     const villaEl = document.createElement("div");
     villaEl.className = "villa";
@@ -158,7 +174,7 @@ function renderHistoryItems(items) {
       villaEl.appendChild(sectionEl);
     }
 
-    historyItemsEl.appendChild(villaEl);
+    container.appendChild(villaEl);
   }
 }
 
@@ -202,11 +218,6 @@ function renderHistoryItem(item) {
 
   return row;
 }
-
-historyBackBtn.addEventListener("click", () => {
-  historyDetailEl.classList.add("hidden");
-  historyListEl.classList.remove("hidden");
-});
 
 async function openViewer(itemId, mediaType) {
   viewerContentEl.innerHTML = '<div class="viewer-message">Loading...</div>';

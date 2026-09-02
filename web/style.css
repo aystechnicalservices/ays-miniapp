@@ -44,25 +44,18 @@ h1 {
   margin-top: 8px;
 }
 
-#history-detail.hidden { display: none; }
-
-#history-back-btn {
-  display: block;
-  margin-bottom: 14px;
-  padding: 8px 0;
-  border: none;
-  background: none;
-  color: var(--link);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
+.history-entry {
+  margin-bottom: 4px;
 }
 
-#history-heading {
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 14px;
+.history-detail {
+  margin: 4px 0 14px 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--section-bg);
 }
+
+.history-detail.hidden { display: none; }
 
 #banner {
   background: var(--section-bg);
@@ -88,6 +81,39 @@ h1 {
   margin: 0 0 10px 4px;
   padding-bottom: 6px;
   border-bottom: 2px solid var(--section-bg);
+}
+
+.villa-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 2px solid var(--section-bg);
+  margin: 0 0 10px 4px;
+  padding-bottom: 6px;
+}
+
+.villa-header .villa-title {
+  margin: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.villa-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.villa-select-btn {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: none;
+  background: var(--section-bg);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .section {
@@ -358,23 +384,6 @@ h1 {
   transform: translateX(-50%) translateY(0);
 }
 
-#select-bar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-#select-bar button {
-  flex: none;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: none;
-  background: var(--section-bg);
-  color: var(--text);
-  font-size: 13px;
-  cursor: pointer;
-}
-
 #send-bar {
   position: sticky;
   bottom: 0;
@@ -402,9 +411,6 @@ h1 {
   margin-right: auto;
 }
 
-#update-plan-btn.hidden { display: none; }
-
-#update-plan-btn,
 #send-now-btn,
 #schedule-open-btn,
 #schedule-confirm-btn {
@@ -416,14 +422,6 @@ h1 {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-}
-
-/* Must come after the shared rule above to win. Update is the safe everyday
-   action; "New plan" resets the day, so it's styled as secondary to steer
-   the boss toward the non-destructive one. */
-#send-now-btn {
-  background: var(--section-bg);
-  color: var(--text);
 }
 
 #schedule-picker {

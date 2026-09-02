@@ -1,9 +1,11 @@
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from . import config
+from . import config, db
 
 log = logging.getLogger("ays.bot")
 
@@ -24,6 +26,7 @@ def build_application() -> Application:
         .build()
     )
     application.add_handler(CommandHandler("start", start_handler))
+    application.add_handler(CommandHandler("menu", start_handler))
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, stray_media_handler))
     return application
 
@@ -34,6 +37,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(
             f"You're not registered for this yet. Your Telegram ID is {user_id}. "
             "Ask the boss to add you."
+        )
+        return
+    if config.MAINTENANCE_MODE and user_id not in config.BOSS_IDS:
+        await update.message.reply_text(
+            "The work plan is being updated. Please check back in a few minutes."
         )
         return
     if not config.PUBLIC_URL:
@@ -53,7 +61,16 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         buttons.append(
             [InlineKeyboardButton("Open archive", web_app=WebAppInfo(url=f"{config.PUBLIC_URL}/archive"))]
         )
-    await update.message.reply_text("Today's checklist:", reply_markup=InlineKeyboardMarkup(buttons))
+        message_text = "Menu"
+    else:
+        tz = ZoneInfo(config.TIMEZONE)
+        sent_at = db.get_plan_sent_at()
+        if sent_at:
+            date_str = datetime.fromisoformat(sent_at).astimezone(tz).strftime("%d/%m/%Y")
+        else:
+            date_str = datetime.now(tz).strftime("%d/%m/%Y")
+        message_text = f"Work plan {date_str}"
+    await update.message.reply_text(message_text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def stray_media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -64,6 +81,11 @@ async def stray_media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def notify_crew(bot, date_str: str) -> None:
     """Tell every crew member a plan is ready, with a WORK button that opens it."""
     if not config.CREW_IDS or not config.PUBLIC_URL:
+        return
+    if config.MAINTENANCE_MODE:
+        # Mid-maintenance sends are the boss testing; don't buzz the crew's
+        # phones with a plan they can't open yet.
+        log.info("Maintenance mode on — skipping crew notification")
         return
     keyboard = InlineKeyboardMarkup(
         [[InlineKeyboardButton("WORK", web_app=WebAppInfo(url=config.PUBLIC_URL))]]

@@ -58,8 +58,7 @@ one scheduled send is kept at a time — scheduling a new one (or sending now)
 replaces/cancels whatever was pending, and there's a **Cancel** control shown
 while one is pending. This is a simple in-process `asyncio` timer, not a
 persisted job: **if the server restarts, a pending scheduled send is lost**
-(the real "clean" scheduling — a Render Cron Job — is spec section 9's
-slice 4, not built yet).
+(a proper persisted scheduler is spec section 9's slice 4, not built yet).
 
 Whenever a plan actually goes out (immediately or once a schedule fires):
 - everyone in `CREW_IDS` gets **"WORK PLAN FOR DD/MM/YYYY"** with a **WORK**
@@ -76,25 +75,6 @@ open the checklist manually any time).
 Separately, the moment every item on the live plan is finished, each ID in
 `BOSS_ID` + `EXTRA_BOSS_IDS` gets a plain "All tasks for DD/MM/YYYY are
 finished." message.
-
-## Editing today's plan vs. starting a new one
-
-Two different actions, and the distinction matters:
-
-- **Update today** (`/api/boss/update-plan` → `db.update_plan()`) edits the
-  plan that's already live. Items still on it keep their tick, photo,
-  timestamp and who-did-it; only newly selected items are added and
-  deselected *unfinished* items removed. **A finished item is never removed
-  even if deselected** — that would throw away the photo and the record of
-  who did the work — so those are kept and reported back as `kept_finished`
-  for the UI to mention. No new archive entry, and the plan's date is
-  unchanged.
-- **New plan / Schedule** (`db.send_plan()`) starts a fresh generation and
-  everything reverts to unfinished. Right first thing in the morning;
-  destructive mid-day, so the button is styled as secondary and asks for
-  confirmation once anything is finished.
-
-The button only appears once a plan is actually live (`plan_total > 0`).
 
 ## Archive — what happens to past plans
 
@@ -236,7 +216,7 @@ server → Telegram. Running the server on a home connection means both legs
 are limited by that connection's (usually slow) upload speed, so a 20 MB
 video costs 40 MB of uploading before the worker sees it succeed. Shrinking
 the file helps, but the structural fix is hosting the backend somewhere
-with real bandwidth (Render, per `spec.md` section 8): the phone's upload
+with real bandwidth (see `spec.md` section 8): the phone's upload
 becomes a normal internet transfer and the server → Telegram leg runs at
 datacenter speed. Uploads show a live percentage
 (`postWithProgress()` via XHR, since `fetch` can't report upload progress)
@@ -297,30 +277,43 @@ Fill in `.env`:
    re-add a `MessageHandler(filters.UpdateType.CHANNEL_POST, ...)` in
    [`app/bot.py`](app/bot.py) that logs `update.channel_post.chat.id`.)
 
-## 4. Expose the app over HTTPS (dev)
+## 4. Expose the app over HTTPS
 
-Telegram requires the Mini App page to be served over HTTPS. Easiest for
-testing is a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
-(`cloudflared`) — no account needed, and unlike ngrok's free tier it doesn't
-show a "visit site" warning page first (which would otherwise break the
-Mini App, since Telegram's WebView can't click through it):
+Telegram requires the Mini App page to be served over HTTPS.
+
+**Current setup: Tailscale Funnel.** It gives a *permanent* public HTTPS
+address with a valid certificate, free, so BotFather only ever needs
+configuring once:
 
 ```bash
-cloudflared tunnel --url http://localhost:8000
+tailscale funnel --bg 8000
 ```
 
-Copy the `https://...trycloudflare.com` URL it prints, put it in `.env` as
-`PUBLIC_URL`. This URL is temporary — it changes every time you restart the
-tunnel, so you'll need to update `PUBLIC_URL` and BotFather's Mini App URL
-(step 5) again after a restart. For real use, deploy to Render instead
-(below): the URL stops changing, and uploads stop crossing a home
-connection twice.
+The address is `https://ays-checklist.tail993c5a.ts.net` and it does **not**
+change across restarts or reboots — the funnel config is stored by
+`tailscaled` and the Tailscale service starts automatically. If it ever
+stops, the command above restores the same URL. Check with
+`tailscale funnel status`.
+
+Funnel needs enabling once per tailnet; `tailscale funnel` prints a
+`login.tailscale.com/f/funnel?node=...` link if it isn't.
+
+**Alternative for throwaway testing:** a
+[Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+(`cloudflared tunnel --url http://localhost:8000`) needs no account, but
+its hostname is **regenerated every time the tunnel restarts**, so a reboot
+silently breaks the Mini App for everyone until `PUBLIC_URL` and BotFather
+are both updated. That's the failure Tailscale Funnel exists to avoid here.
+(ngrok's free tier is worse still — it shows an interstitial warning page
+that Telegram's WebView can't click through.)
 
 ## 5. Register the Mini App URL with BotFather
 
 In [@BotFather](https://t.me/BotFather): `/mybots` → your bot → **Bot
 Settings** → **Configure Mini App** (older BotFather versions call this
 **Menu Button** → **Configure menu button**) → set it to your `PUBLIC_URL`.
+
+With Tailscale Funnel this is a one-time step, since the URL is stable.
 
 ## 6. Run
 
@@ -363,49 +356,36 @@ This starts the web server and the bot (polling) together. Leave it running.
    exactly that set of items. If `CREW_IDS` is set, everyone in it also gets
    a "WORK PLAN FOR DD/MM/YYYY" message with a WORK button.
 
-## Deploying to Render
+## Hosting: Tailscale Funnel
 
-Worth doing for real use: the URL stops changing on every restart, and
-uploads stop crossing a home connection twice (see "Why uploads feel slow"
-above). [`render.yaml`](render.yaml) describes the service.
+The server runs on the boss's own PC (`python run.py`) and is exposed on the
+public internet via [Tailscale Funnel](https://tailscale.com/kb/1223/funnel),
+rather than a paid cloud host. This keeps `ays.db` and the media cache on
+local disk (no persistent-disk billing, no wipe-on-redeploy risk) while still
+giving a stable HTTPS URL Telegram can reach.
 
-1. **Push this repo to GitHub** (it isn't a git repo yet — `git init`, commit,
-   push). Check `.env` is *not* committed — `.gitignore` covers it, but
-   confirm with `git status` before the first push.
-2. In Render: **New → Blueprint**, point it at the repo. It reads
-   `render.yaml` and creates the web service with its persistent disk.
-3. Fill in the secrets it asks for (marked `sync: false`, so they're never
-   in the repo): `BOT_TOKEN`, `BOSS_ID`, `STORAGE_CHAT_ID`,
-   `EXTRA_BOSS_IDS`, `CREW_IDS`. Leave `PUBLIC_URL` blank for now.
-4. Deploy. Render assigns `https://<service>.onrender.com` — set that as
-   `PUBLIC_URL` in the dashboard and **redeploy**, since the bot builds its
-   Mini App buttons from it.
-5. Point BotFather's Mini App URL at the same address (step 5 above). This
-   is the last time you'll have to: the URL is now stable.
+1. `winget install --id tailscale.tailscale`, then sign in
+   (`tailscale up`) and approve the machine.
+2. `tailscale funnel --bg 8000` — the first run prints a one-time approval
+   link; open it and approve funnel on the tailnet, then re-run the command.
+3. This gives a permanent address of the form
+   `https://<machine>.<tailnet>.ts.net`, which **does not change** across
+   restarts — unlike a quick tunnel (e.g. cloudflared), BotFather's Mini App
+   URL only ever needs setting once. Set it as `PUBLIC_URL` in `.env`.
+4. Set the Tailscale service to start automatically on boot (Tailscale's own
+   settings) so the tunnel survives a reboot. The Python server itself still
+   needs a manual `python run.py` after a reboot.
 
-Three things that will bite if changed:
-
-- **Use the `starter` plan, not `free`.** Free instances sleep when idle,
-  which stops the bot polling for updates and silently kills any scheduled
-  send. The scheduler is an in-process timer, so it only exists while the
-  process does.
-- **Keep the persistent disk.** Render wipes the container filesystem on
-  every deploy. `DATA_DIR=/var/data` puts `ays.db` (the whole library, every
-  plan, all history) and the media cache on the mounted disk instead. Without
-  it, every deploy silently resets the app to a fresh seeded library.
-- **Back up `ays.db`.** A Render disk is not a backup. The photos themselves
-  live in Telegram, but the database is the only record of which photo
-  belongs to which task, who did it and when.
-
-Still on polling rather than webhooks. Polling works fine on an
-always-on instance and avoids a config mode; webhook support is the
-tidier long-term option (`spec.md` section 8) but isn't built.
+Still on polling rather than webhooks. Polling works fine on an always-on
+machine and avoids a config mode; webhook support is the tidier long-term
+option (`spec.md` section 8) but isn't built.
 
 ## Notes / assumptions made
 
-- Fixed set of items seeded from `spec.md` section 11, tagged villa `908`,
-  hardcoded in [`app/db.py`](app/db.py) as the initial library. The live
-  plan starts **empty** until the boss sends one — no auto-fill.
+- Library items are seeded per villa/section from `spec.md` section 11,
+  hardcoded in [`app/db.py`](app/db.py) as `SEED_ITEMS`, used only to
+  populate a brand-new (empty) database. The live plan starts **empty**
+  until the boss sends one — no auto-fill.
 - Sending a plan **replaces** what workers see and resets tick/finished
   state for the new generation, but the old generation's rows stay in the
   database (see Archive above) — nothing is actually deleted.

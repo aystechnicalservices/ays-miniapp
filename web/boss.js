@@ -15,12 +15,9 @@ const addVillaEl = document.getElementById("add-villa");
 const villaListEl = document.getElementById("villa-list");
 const addSectionEl = document.getElementById("add-section");
 const sectionListEl = document.getElementById("section-list");
-const selectAllBtn = document.getElementById("select-all-btn");
-const deselectAllBtn = document.getElementById("deselect-all-btn");
 const sendCountEl = document.getElementById("send-count");
 const sendRowEl = document.getElementById("send-row");
 const sendNowBtn = document.getElementById("send-now-btn");
-const updatePlanBtn = document.getElementById("update-plan-btn");
 const scheduleOpenBtn = document.getElementById("schedule-open-btn");
 const schedulePickerEl = document.getElementById("schedule-picker");
 const scheduleHourEl = document.getElementById("schedule-hour");
@@ -37,8 +34,6 @@ let selectedIds = new Set();
 let latestLibrary = [];
 let busy = false;
 let toastTimer = null;
-let planTotal = 0;
-let planDone = 0;
 
 function showBanner(text) {
   bannerEl.textContent = text;
@@ -104,10 +99,41 @@ function render(library) {
     const villaEl = document.createElement("div");
     villaEl.className = "villa";
 
+    const villaHeader = document.createElement("div");
+    villaHeader.className = "villa-header";
+
     const villaTitle = document.createElement("div");
     villaTitle.className = "villa-title";
     villaTitle.textContent = `Villa ${villa}`;
-    villaEl.appendChild(villaTitle);
+    villaHeader.appendChild(villaTitle);
+
+    const villaActions = document.createElement("div");
+    villaActions.className = "villa-actions";
+
+    const villaIds = byVilla.get(villa).map((i) => i.id);
+
+    const selectBtn = document.createElement("button");
+    selectBtn.type = "button";
+    selectBtn.className = "villa-select-btn";
+    selectBtn.textContent = "Select all";
+    selectBtn.addEventListener("click", () => {
+      for (const id of villaIds) selectedIds.add(id);
+      render(latestLibrary);
+    });
+    villaActions.appendChild(selectBtn);
+
+    const deselectBtn = document.createElement("button");
+    deselectBtn.type = "button";
+    deselectBtn.className = "villa-select-btn";
+    deselectBtn.textContent = "Deselect all";
+    deselectBtn.addEventListener("click", () => {
+      for (const id of villaIds) selectedIds.delete(id);
+      render(latestLibrary);
+    });
+    villaActions.appendChild(deselectBtn);
+
+    villaHeader.appendChild(villaActions);
+    villaEl.appendChild(villaHeader);
 
     const sections = [];
     const bySection = new Map();
@@ -183,16 +209,6 @@ function toggleSelect(itemId) {
   render(latestLibrary);
 }
 
-selectAllBtn.addEventListener("click", () => {
-  selectedIds = new Set(latestLibrary.map((i) => i.id));
-  render(latestLibrary);
-});
-
-deselectAllBtn.addEventListener("click", () => {
-  selectedIds = new Set();
-  render(latestLibrary);
-});
-
 function updateHeading(planDate) {
   headingEl.textContent = planDate ? `Work Plan ${planDate}` : "Library";
 }
@@ -206,12 +222,6 @@ function applyBossState(data, resetSelection) {
   }
   updateHeading(data.plan_date);
   renderScheduleStatus(data.pending_schedule);
-
-  // "Update today" only means anything once a plan is actually live.
-  planTotal = data.plan_total || 0;
-  planDone = data.plan_done || 0;
-  updatePlanBtn.classList.toggle("hidden", planTotal === 0);
-  sendNowBtn.textContent = planTotal > 0 ? "New plan" : "Send now";
 
   render(data.library);
 }
@@ -328,49 +338,6 @@ async function sendPlan(sendAt) {
   }
 }
 
-// Edits the live plan rather than starting a new one, so anything the crew
-// has already finished keeps its tick, photo and timestamp.
-async function updatePlan() {
-  if (busy) return;
-  if (selectedIds.size === 0) {
-    showBanner("Select at least one item first.");
-    return;
-  }
-  busy = true;
-  try {
-    const res = await fetch("/api/boss/update-plan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ init_data: initData, item_ids: [...selectedIds] }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      showBanner(body.detail || "Could not update the plan.");
-      return;
-    }
-    const data = await res.json();
-    hideBanner();
-    applyBossState(data, false);
-
-    const { added, removed, kept_finished: keptFinished } = data.changes;
-    const parts = [];
-    if (added) parts.push(`${added} added`);
-    if (removed) parts.push(`${removed} removed`);
-    if (!parts.length) parts.push("no changes");
-    let message = `✅ Today's plan updated — ${parts.join(", ")}`;
-    if (keptFinished) {
-      message += `. ${keptFinished} finished item${keptFinished > 1 ? "s" : ""} kept.`;
-    }
-    showToast(message);
-  } catch (err) {
-    showBanner("Network error updating the plan.");
-  } finally {
-    busy = false;
-  }
-}
-
-updatePlanBtn.addEventListener("click", updatePlan);
-
 function populateTimeSelects() {
   for (let h = 0; h < 24; h++) {
     const opt = document.createElement("option");
@@ -400,19 +367,7 @@ function closeSchedulePicker() {
   sendRowEl.classList.remove("hidden");
 }
 
-// "New plan" throws away the current plan's tick state. That's fine first
-// thing in the morning, but mid-day it would discard finished work, so make
-// the boss confirm once there's something to lose.
-sendNowBtn.addEventListener("click", () => {
-  if (planDone > 0) {
-    const msg =
-      `${planDone} item${planDone > 1 ? "s are" : " is"} already finished today. ` +
-      "Starting a new plan clears that. Use \"Update today\" to keep it.\n\n" +
-      "Start a new plan anyway?";
-    if (!window.confirm(msg)) return;
-  }
-  sendPlan(null);
-});
+sendNowBtn.addEventListener("click", () => sendPlan(null));
 scheduleOpenBtn.addEventListener("click", openSchedulePicker);
 scheduleBackBtn.addEventListener("click", closeSchedulePicker);
 scheduleConfirmBtn.addEventListener("click", () => {
