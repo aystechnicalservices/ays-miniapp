@@ -70,7 +70,7 @@ async def notify_crew(bot, date_str: str) -> None:
     )
     for crew_id in config.CREW_IDS:
         try:
-            await bot.send_message(crew_id, f"WORK PLAN FOR {date_str}", reply_markup=keyboard)
+            await bot.send_message(crew_id, f"Work Plan {date_str}", reply_markup=keyboard)
         except Exception:
             log.exception("Failed to notify crew id %s", crew_id)
 
