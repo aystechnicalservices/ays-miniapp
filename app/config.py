@@ -14,18 +14,8 @@ EXTRA_BOSS_IDS = {
 BOSS_IDS = {BOSS_ID} | EXTRA_BOSS_IDS  # everyone allowed into the boss library view
 CREW_IDS = {
     int(x) for x in os.environ.get("CREW_IDS", "").split(",") if x.strip()
-}  # who gets the "WORK PLAN FOR ..." notification when a plan is sent
+}  # who gets the "Work Plan ..." notification when a plan is sent
 ALLOWED_IDS = BOSS_IDS | CREW_IDS  # only these Telegram IDs may use the bot/Mini App
-# Temporarily locks the crew out (bosses keep full access) so a plan can be
-# rearranged mid-day without workers seeing a half-finished state. Editing the
-# *library* alone never affects workers — only sending a plan does — so this
-# is only needed when testing a send.
-MAINTENANCE_MODE = os.environ.get("MAINTENANCE_MODE", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
 TIMEZONE = os.environ.get("TIMEZONE", "Asia/Dubai")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 HOST = os.environ.get("HOST", "0.0.0.0")

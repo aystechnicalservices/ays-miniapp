@@ -39,11 +39,6 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "Ask the boss to add you."
         )
         return
-    if config.MAINTENANCE_MODE and user_id not in config.BOSS_IDS:
-        await update.message.reply_text(
-            "The work plan is being updated. Please check back in a few minutes."
-        )
-        return
     if not config.PUBLIC_URL:
         await update.message.reply_text(
             "The checklist app isn't set up with a public URL yet. Ask the admin to set "
@@ -81,11 +76,6 @@ async def stray_media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def notify_crew(bot, date_str: str) -> None:
     """Tell every crew member a plan is ready, with a WORK button that opens it."""
     if not config.CREW_IDS or not config.PUBLIC_URL:
-        return
-    if config.MAINTENANCE_MODE:
-        # Mid-maintenance sends are the boss testing; don't buzz the crew's
-        # phones with a plan they can't open yet.
-        log.info("Maintenance mode on — skipping crew notification")
         return
     keyboard = InlineKeyboardMarkup(
         [[InlineKeyboardButton("WORK", web_app=WebAppInfo(url=config.PUBLIC_URL))]]

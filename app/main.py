@@ -97,11 +97,6 @@ def _authenticate(init_data: str):
             detail=f"You're not registered yet. Your Telegram ID is {user['id']}. "
             "Ask the boss to add you.",
         )
-    if config.MAINTENANCE_MODE and user["id"] not in config.BOSS_IDS:
-        raise HTTPException(
-            status_code=503,
-            detail="The work plan is being updated. Please check back in a few minutes.",
-        )
     return user
 
 
