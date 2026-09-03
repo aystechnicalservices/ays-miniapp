@@ -14,9 +14,11 @@ Model:
 - plan_items: a generation's assembled checklist — references library_items
   by id, tagged with the plan generation (plan_id) it belongs to. Sending a
   new plan does NOT delete old plan_items/item_state: those stay in the
-  database as the archive for past days. Only the latest plan generation
-  (MAX(plans.id)) is "current" — that's what the worker checklist, the
-  library's "active" highlighting, and library-item removal all look at.
+  database as the archive for past days. Every plan dated today or later
+  (plan_date >= today) stays fully live and editable by its own plan_id —
+  not just the most recent row — since a boss sending tomorrow's plan
+  shouldn't make today's stop working. Anything dated before today is
+  archive: read-only, addressed only by plan_id from the Archive page.
 - item_state: tick/done state per plan_item (1 row per plan_item, keyed by
   its id — never reused across generations, so history stays intact).
 """
@@ -212,7 +214,7 @@ def init_db() -> None:
                 )
 
 
-def _replace_plan(conn, library_item_ids: list[int], plan_date: str) -> None:
+def _replace_plan(conn, library_item_ids: list[int], plan_date: str) -> int:
     cur = conn.execute(
         "INSERT INTO plans (sent_at, plan_date) VALUES (?, ?)", (_now(), plan_date)
     )
@@ -226,32 +228,29 @@ def _replace_plan(conn, library_item_ids: list[int], plan_date: str) -> None:
             "INSERT INTO item_state (item_id, done) VALUES (?, 0)",
             (item_cur.lastrowid,),
         )
+    return plan_id
 
 
-def send_plan(library_item_ids: list[int], plan_date: str) -> None:
+def send_plan(library_item_ids: list[int], plan_date: str) -> int:
     """Starts a fresh plan generation labeled for plan_date (an ISO
-    YYYY-MM-DD string — "today" or "tomorrow" at the time this is called)."""
+    YYYY-MM-DD string — "today" or "tomorrow" at the time this is called).
+    Returns the new plan's id."""
     with get_conn() as conn:
-        _replace_plan(conn, library_item_ids, plan_date)
+        return _replace_plan(conn, library_item_ids, plan_date)
 
 
-def update_plan(library_item_ids: list[int]) -> None:
-    """Applies a new selection to the plan that's already live, in place —
-    used when the boss re-sends targeting the same date it's already
-    labeled for, so a tweak doesn't wipe the crew's progress or its date.
-    A finished item is never touched, no matter what the new selection
-    says: it keeps its tick, photo and timestamp forever, even if
-    deselected or deleted from the library entirely. An unfinished item
-    not in the new selection is dropped outright. Anything newly selected
-    that isn't already on the plan is added as a fresh, unfinished entry.
-    Caller is responsible for only calling this when a current plan
-    already exists for the target date (see main.py's _fire_plan)."""
+def update_plan(plan_id: int, library_item_ids: list[int]) -> None:
+    """Applies a new selection to plan_id in place — used when the boss
+    re-sends targeting a date that already has a plan (today's or
+    tomorrow's), so a tweak doesn't wipe the crew's progress. A finished
+    item is never touched, no matter what the new selection says: it keeps
+    its tick, photo and timestamp forever, even if deselected or deleted
+    from the library entirely. An unfinished item not in the new selection
+    is dropped outright. Anything newly selected that isn't already on the
+    plan is added as a fresh, unfinished entry. This works on *any* plan,
+    not just the most recent one — today's plan stays fully editable even
+    after tomorrow's has been sent and become the newer generation."""
     with get_conn() as conn:
-        plan_row = conn.execute("SELECT MAX(id) AS id FROM plans").fetchone()
-        plan_id = plan_row["id"]
-        if plan_id is None:
-            return
-
         existing = conn.execute(
             """
             SELECT plan_items.id, plan_items.library_item_id, item_state.done
@@ -289,20 +288,62 @@ def update_plan(library_item_ids: list[int]) -> None:
             next_sort += 1
 
 
-def get_current_plan_date():
-    """ISO date (YYYY-MM-DD) the live plan is labeled for, or None if no
-    plan has ever been sent."""
+def get_plan_id_for_date(date_iso: str):
+    """The plan generation labeled for this ISO date, or None. At most one
+    plan is ever labeled for a given date — "today"/"tomorrow" are always
+    computed relative to the actual calendar date, so a date can't be
+    targeted twice once it's passed."""
     with get_conn() as conn:
-        row = conn.execute("SELECT plan_date FROM plans ORDER BY id DESC LIMIT 1").fetchone()
+        row = conn.execute(
+            "SELECT id FROM plans WHERE plan_date = ? ORDER BY id DESC LIMIT 1",
+            (date_iso,),
+        ).fetchone()
+        return row["id"] if row else None
+
+
+def list_current_or_future_plan_dates(today_iso: str):
+    """Every plan generation dated today or later, earliest first. Normally
+    just today's; two entries once a plan for tomorrow has been sent."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, plan_date FROM plans WHERE plan_date >= ? ORDER BY plan_date ASC",
+            (today_iso,),
+        ).fetchall()
+        return [{"id": r["id"], "plan_date": r["plan_date"]} for r in rows]
+
+
+def get_plan_date(plan_id: int):
+    with get_conn() as conn:
+        row = conn.execute("SELECT plan_date FROM plans WHERE id = ?", (plan_id,)).fetchone()
         return row["plan_date"] if row and row["plan_date"] else None
 
 
-def list_plans():
-    """All plan generations, most recent first, with a simple finished/total count."""
+def get_plan_id_for_item(item_id: int):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT plan_id FROM plan_items WHERE id = ?", (item_id,)
+        ).fetchone()
+        return row["plan_id"] if row else None
+
+
+def get_plan_library_item_ids(plan_id):
+    """library_item_ids currently on plan_id, or [] if plan_id is None/has none."""
+    if plan_id is None:
+        return []
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT library_item_id FROM plan_items WHERE plan_id = ?", (plan_id,)
+        ).fetchall()
+        return [r["library_item_id"] for r in rows]
+
+
+def list_plans(today_iso: str):
+    """All plan generations, most recent first, with a simple finished/total
+    count. "current" marks any plan dated today or later — not just the
+    most recent row — since today's plan stays live even after tomorrow's
+    has been sent."""
     with get_conn() as conn:
         plan_rows = conn.execute("SELECT id, sent_at, plan_date FROM plans ORDER BY id DESC").fetchall()
-        current_id_row = conn.execute("SELECT MAX(id) AS m FROM plans").fetchone()
-        current_id = current_id_row["m"] if current_id_row else None
 
         result = []
         for p in plan_rows:
@@ -322,7 +363,7 @@ def list_plans():
                     "plan_date": p["plan_date"],
                     "total": counts["total"],
                     "done": counts["done"],
-                    "current": p["id"] == current_id,
+                    "current": bool(p["plan_date"]) and p["plan_date"] >= today_iso,
                 }
             )
         return result
@@ -359,51 +400,29 @@ def get_plan_items(plan_id: int):
     ]
 
 
-def get_checklist():
-    with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT plan_items.id, library_items.villa, library_items.section,
-                   library_items.text, plan_items.sort_order, item_state.done,
-                   item_state.user_name, item_state.done_at, item_state.media_type
-            FROM plan_items
-            JOIN library_items ON library_items.id = plan_items.library_item_id
-            JOIN item_state ON item_state.item_id = plan_items.id
-            WHERE plan_items.plan_id = (SELECT MAX(id) FROM plans)
-            ORDER BY plan_items.sort_order
-            """
-        ).fetchall()
-
-    items = [
-        {
-            "id": r["id"],
-            "villa": r["villa"],
-            "section": r["section"],
-            "text": r["text"],
-            "done": bool(r["done"]),
-            "done_by": r["user_name"],
-            "done_at": r["done_at"],
-            "media_type": r["media_type"],
-        }
-        for r in rows
-    ]
+def get_checklist(plan_id: int):
+    items = get_plan_items(plan_id)
     all_done = bool(items) and all(i["done"] for i in items)
     return items, all_done
 
 
-def is_active_and_pending(item_id: int) -> bool:
-    """True if item_id belongs to the current (latest) plan and isn't done yet."""
+def is_active_and_pending(item_id: int, today_iso: str) -> bool:
+    """True if item_id belongs to a plan dated today or later (not an
+    archived past plan) and isn't done yet."""
     with get_conn() as conn:
         row = conn.execute(
             """
-            SELECT item_state.done
+            SELECT item_state.done, plans.plan_date
             FROM plan_items
             JOIN item_state ON item_state.item_id = plan_items.id
-            WHERE plan_items.id = ? AND plan_items.plan_id = (SELECT MAX(id) FROM plans)
+            JOIN plans ON plans.id = plan_items.plan_id
+            WHERE plan_items.id = ?
             """,
             (item_id,),
         ).fetchone()
-        return row is not None and not row["done"]
+        if row is None or row["done"]:
+            return False
+        return bool(row["plan_date"]) and row["plan_date"] >= today_iso
 
 
 def get_media(item_id: int):
@@ -446,26 +465,18 @@ def get_item_text(item_id: int):
 
 
 def list_library():
-    """Non-retired library items, plus which ones are in the current plan."""
+    """Non-retired library items. Which ones are selected for today/tomorrow
+    is per-target now (see main.py's _boss_state), not a single flag here —
+    today's and tomorrow's plans can each have their own selection live at
+    once."""
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, villa, section, text, sort_order FROM library_items "
             "WHERE retired = 0 ORDER BY sort_order"
         ).fetchall()
-        active_rows = conn.execute(
-            "SELECT DISTINCT library_item_id FROM plan_items "
-            "WHERE plan_id = (SELECT MAX(id) FROM plans)"
-        ).fetchall()
-        active_ids = {r["library_item_id"] for r in active_rows}
 
     return [
-        {
-            "id": r["id"],
-            "villa": r["villa"],
-            "section": r["section"],
-            "text": r["text"],
-            "active": r["id"] in active_ids,
-        }
+        {"id": r["id"], "villa": r["villa"], "section": r["section"], "text": r["text"]}
         for r in rows
     ]
 

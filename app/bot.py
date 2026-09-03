@@ -45,10 +45,26 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "PUBLIC_URL in .env."
         )
         return
-    # ?checklist=1 stops the page bouncing bosses over to the library, which
-    # is what the blue menu button relies on.
-    checklist_url = f"{config.PUBLIC_URL}/?checklist=1"
-    buttons = [[InlineKeyboardButton("Open checklist", web_app=WebAppInfo(url=checklist_url))]]
+
+    tz = ZoneInfo(config.TIMEZONE)
+    today_iso = datetime.now(tz).date().isoformat()
+    plans = db.list_current_or_future_plan_dates(today_iso)
+
+    # Each dated plan gets its own button, opening that specific plan by
+    # id — never a generic "current checklist" link. That's what a boss
+    # sending tomorrow's plan while today's is still in progress needs:
+    # both stay reachable and unambiguous, instead of one link that
+    # silently starts pointing at whichever is newest.
+    buttons = [
+        [
+            InlineKeyboardButton(
+                f"Work plan {datetime.fromisoformat(p['plan_date']).strftime('%d/%m/%Y')}",
+                web_app=WebAppInfo(url=f"{config.PUBLIC_URL}/?plan={p['id']}"),
+            )
+        ]
+        for p in plans
+    ]
+
     if user_id in config.BOSS_IDS:
         buttons.append(
             [InlineKeyboardButton("Open library", web_app=WebAppInfo(url=f"{config.PUBLIC_URL}/boss"))]
@@ -57,13 +73,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             [InlineKeyboardButton("Open archive", web_app=WebAppInfo(url=f"{config.PUBLIC_URL}/archive"))]
         )
         message_text = "Menu"
+    elif plans:
+        message_text = "Work plan" if len(plans) == 1 else "Work plans"
     else:
-        current_date = db.get_current_plan_date()
-        if current_date:
-            date_str = datetime.fromisoformat(current_date).strftime("%d/%m/%Y")
-        else:
-            date_str = datetime.now(ZoneInfo(config.TIMEZONE)).strftime("%d/%m/%Y")
-        message_text = f"Work plan {date_str}"
+        message_text = "No work plan has been sent yet."
+
     await update.message.reply_text(message_text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
@@ -72,12 +86,13 @@ async def stray_media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text("Open the checklist and tap the item to attach this.")
 
 
-async def notify_crew(bot, date_str: str) -> None:
-    """Tell every crew member a plan is ready, with a WORK button that opens it."""
+async def notify_crew(bot, date_str: str, plan_id: int) -> None:
+    """Tell every crew member a plan is ready, with a WORK button that opens
+    that specific plan."""
     if not config.CREW_IDS or not config.PUBLIC_URL:
         return
     keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("WORK", web_app=WebAppInfo(url=config.PUBLIC_URL))]]
+        [[InlineKeyboardButton("WORK", web_app=WebAppInfo(url=f"{config.PUBLIC_URL}/?plan={plan_id}"))]]
     )
     for crew_id in config.CREW_IDS:
         try:
@@ -86,18 +101,17 @@ async def notify_crew(bot, date_str: str) -> None:
             log.exception("Failed to notify crew id %s", crew_id)
 
 
-async def notify_boss_sent(bot, date_str: str) -> None:
-    """Confirm to the boss(es) that the plan went out, with a button to open it."""
+async def notify_boss_sent(bot, date_str: str, plan_id: int) -> None:
+    """Confirm to the boss(es) that the plan went out, with a button to open
+    that specific plan's checklist."""
     if not config.PUBLIC_URL:
         return
-    # This button goes to bosses, who would otherwise be redirected to the
-    # library — ?checklist=1 keeps it showing the checklist it advertises.
     keyboard = InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(
                     "Open checklist",
-                    web_app=WebAppInfo(url=f"{config.PUBLIC_URL}/?checklist=1"),
+                    web_app=WebAppInfo(url=f"{config.PUBLIC_URL}/?plan={plan_id}"),
                 )
             ]
         ]

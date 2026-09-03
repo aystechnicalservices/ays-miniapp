@@ -206,10 +206,8 @@ function updateHeading() {
 }
 
 function selectionForTarget(data, target) {
-  if (target === data.current_target) {
-    return new Set(data.library.filter((i) => i.active).map((i) => i.id));
-  }
-  return new Set();
+  const ids = target === "tomorrow" ? data.tomorrow_active_ids : data.today_active_ids;
+  return new Set(ids);
 }
 
 function applyBossState(data, resetSelection) {

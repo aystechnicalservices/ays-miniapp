@@ -20,6 +20,7 @@ const viewerContentEl = document.getElementById("viewer-content");
 const viewerCloseEl = document.getElementById("viewer-close");
 
 const initData = tg ? tg.initData : "";
+const planId = new URLSearchParams(location.search).get("plan");
 const POLL_MS = 4000;
 let viewerObjectUrl = null;
 
@@ -587,15 +588,15 @@ function postWithProgress(url, form, onProgress) {
 }
 
 async function loadChecklist() {
-  if (!initData) {
-    showBanner("Open this from the checklist button in Telegram.");
+  if (!initData || !planId) {
+    showBanner("Open this from the menu in Telegram.");
     return;
   }
   try {
     const res = await fetch("/api/checklist", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ init_data: initData }),
+      body: JSON.stringify({ init_data: initData, plan_id: Number(planId) }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -609,32 +610,7 @@ async function loadChecklist() {
   }
 }
 
-// Telegram's blue menu button points at one fixed URL for the whole bot, so
-// send bosses on to the library from here. `?checklist=1` opts out, which is
-// what /start's "Open checklist" button uses so a boss can still get here.
-async function routeBossToLibrary() {
-  if (!initData || new URLSearchParams(location.search).has("checklist")) return false;
-  try {
-    const res = await fetch("/api/whoami", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ init_data: initData }),
-    });
-    if (!res.ok) return false;
-    if ((await res.json()).is_boss) {
-      location.replace("/boss");
-      return true;
-    }
-  } catch (err) {
-    // Can't tell — just show the checklist.
-  }
-  return false;
-}
-
-(async () => {
-  if (await routeBossToLibrary()) return;
-  loadChecklist();
-  setInterval(() => {
-    if (!uploadingItemId) loadChecklist();
-  }, POLL_MS);
-})();
+loadChecklist();
+setInterval(() => {
+  if (!uploadingItemId) loadChecklist();
+}, POLL_MS);

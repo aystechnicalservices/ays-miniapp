@@ -81,6 +81,7 @@ async def archive_page():
 
 class ChecklistRequest(BaseModel):
     init_data: str
+    plan_id: int
 
 
 def _authenticate(init_data: str):
@@ -119,34 +120,15 @@ def _fmt_iso_date(iso: str) -> str:
     return datetime.fromisoformat(iso).strftime("%d/%m/%Y")
 
 
-def _plan_date_str():
-    """The live plan's labeled date, formatted DD/MM/YYYY, or None if
-    nothing's been sent yet."""
-    iso = db.get_current_plan_date()
-    return _fmt_iso_date(iso) if iso else None
-
-
-class WhoAmIRequest(BaseModel):
-    init_data: str
-
-
-@app.post("/api/whoami")
-async def api_whoami(req: WhoAmIRequest):
-    """Lets the checklist page send bosses straight to the library — Telegram's
-    menu button is a single fixed URL for the whole bot, so the routing has to
-    happen after we know who opened it."""
-    user = _authenticate(req.init_data)
-    return {"is_boss": user["id"] in config.BOSS_IDS}
-
-
 @app.post("/api/checklist")
 async def api_checklist(req: ChecklistRequest):
     _authenticate(req.init_data)
-    items, all_done = db.get_checklist()
+    items, all_done = db.get_checklist(req.plan_id)
+    plan_date = db.get_plan_date(req.plan_id)
     return {
         "items": items,
         "all_done": all_done,
-        "plan_date": _plan_date_str(),
+        "plan_date": _fmt_iso_date(plan_date) if plan_date else None,
     }
 
 
@@ -223,7 +205,7 @@ async def api_attach(
 ):
     user = _authenticate(init_data)
 
-    if not db.is_active_and_pending(item_id):
+    if not db.is_active_and_pending(item_id, _today_iso(_tz())):
         raise HTTPException(status_code=400, detail="Item not found or already finished")
 
     item_text, section, villa = db.get_item_text(item_id)
@@ -289,14 +271,16 @@ async def api_attach(
         raise HTTPException(status_code=502, detail="Could not save that. Try again.")
 
     db.mark_done(item_id, user["id"], user_name, media_file_id, media_type)
-    items, all_done = db.get_checklist()
+    plan_id = db.get_plan_id_for_item(item_id)
+    items, all_done = db.get_checklist(plan_id)
+    plan_date = db.get_plan_date(plan_id)
+    date_str = _fmt_iso_date(plan_date) if plan_date else None
     if all_done:
-        date_str = _plan_date_str() or datetime.now(_tz()).strftime("%d/%m/%Y")
-        await bot_module.notify_all_done(bot, date_str)
+        await bot_module.notify_all_done(bot, date_str or datetime.now(_tz()).strftime("%d/%m/%Y"))
     return {
         "items": items,
         "all_done": all_done,
-        "plan_date": _plan_date_str(),
+        "plan_date": date_str,
     }
 
 
@@ -373,18 +357,16 @@ def _boss_state(app: FastAPI):
     tz = _tz()
     today_iso = _today_iso(tz)
     tomorrow_iso = _tomorrow_iso(tz)
-    current_iso = db.get_current_plan_date()
-    current_target = None
-    if current_iso == today_iso:
-        current_target = "today"
-    elif current_iso == tomorrow_iso:
-        current_target = "tomorrow"
+    today_plan_id = db.get_plan_id_for_date(today_iso)
+    tomorrow_plan_id = db.get_plan_id_for_date(tomorrow_iso)
     return {
         "library": db.list_library(),
-        "plan_date": _plan_date_str(),
         "today_date": _fmt_iso_date(today_iso),
         "tomorrow_date": _fmt_iso_date(tomorrow_iso),
-        "current_target": current_target,
+        "today_plan_id": today_plan_id,
+        "tomorrow_plan_id": tomorrow_plan_id,
+        "today_active_ids": db.get_plan_library_item_ids(today_plan_id),
+        "tomorrow_active_ids": db.get_plan_library_item_ids(tomorrow_plan_id),
     }
 
 
@@ -393,18 +375,22 @@ async def _fire_plan(app: FastAPI, item_ids: List[int], target: str) -> bool:
     True if this started a fresh generation (and notified everyone), False
     if it just updated the plan already live for that date in place (no
     notification — the crew's existing WORK button for that date already
-    points at the live checklist, so a fresh message would just be noise
-    and has confused people into thinking each one needs its own photos)."""
+    points at that specific plan, so a fresh message would just be noise
+    and has confused people into thinking each one needs its own photos).
+    Today's plan stays fully editable via this same path even after
+    tomorrow's has been sent — each date is tracked independently, not as
+    a single "current" pointer."""
     tz = _tz()
     target_iso = _tomorrow_iso(tz) if target == "tomorrow" else _today_iso(tz)
-    if db.get_current_plan_date() == target_iso:
-        db.update_plan(item_ids)
+    existing_plan_id = db.get_plan_id_for_date(target_iso)
+    if existing_plan_id is not None:
+        db.update_plan(existing_plan_id, item_ids)
         return False
-    db.send_plan(item_ids, target_iso)
+    plan_id = db.send_plan(item_ids, target_iso)
     date_str = _fmt_iso_date(target_iso)
     bot = app.state.bot_application.bot
-    await bot_module.notify_crew(bot, date_str)
-    await bot_module.notify_boss_sent(bot, date_str)
+    await bot_module.notify_crew(bot, date_str, plan_id)
+    await bot_module.notify_boss_sent(bot, date_str, plan_id)
     return True
 
 
@@ -456,7 +442,7 @@ class HistoryPlanRequest(BaseModel):
 async def api_boss_history(req: BossRequest):
     _authenticate_boss(req.init_data)
     tz = _tz()
-    plans = db.list_plans()
+    plans = db.list_plans(_today_iso(tz))
     for p in plans:
         p["date"] = _fmt_iso_date(p["plan_date"]) if p["plan_date"] else "—"
         p["time"] = datetime.fromisoformat(p["sent_at"]).astimezone(tz).strftime("%H:%M")

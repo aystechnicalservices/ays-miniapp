@@ -22,23 +22,20 @@ See `spec.md` section 9. So far:
 
 Only Telegram IDs in `BOSS_ID` + `EXTRA_BOSS_IDS` + `CREW_IDS` (together,
 `ALLOWED_IDS`) can use the bot or the Mini App at all — everyone else gets
-"You're not registered yet. Your Telegram ID is `<id>`." on `/start` and on
-every API call, so the admin can copy that ID straight into `.env`. Within
-that, "boss" is specifically `BOSS_ID` + `EXTRA_BOSS_IDS` — checked again on
-every `/api/boss/...` call — which is what gates **Open library**/**Open
-archive** and their APIs. `/start` gives bosses all three buttons (Open
-checklist / Open library / Open archive); everyone else only gets Open
-checklist. None of the three pages link to each other — `/start` is the only
-way to switch between them, by design (there's no in-app "Library" or
-"Archive" button on the checklist, etc.).
+"You're not registered yet. Your Telegram ID is `<id>`." on `/start`/`/menu`
+and on every API call, so the admin can copy that ID straight into `.env`.
+Within that, "boss" is specifically `BOSS_ID` + `EXTRA_BOSS_IDS` — checked
+again on every `/api/boss/...` call — which is what gates **Open
+library**/**Open archive** and their APIs.
 
-Telegram's blue Menu Button is a single fixed URL for the whole bot, so it
-can't point somewhere different per role. `/` handles that itself: on load
-it asks `/api/whoami` and sends bosses on to `/boss`, so the blue button
-lands bosses in the library and everyone else on the checklist. Adding
-`?checklist=1` opts out of that redirect — which is why `/start`'s "Open
-checklist" button and the "plan sent" confirmation both use it, so a boss
-can still reach the checklist.
+There's no generic "open the checklist" entry point at all — every checklist
+button (from `/start`/`/menu`, and every notification) is dated and opens
+one *specific* plan by id (`/?plan=<id>`), never "whatever's current". See
+"Sending a plan" below for why. `/start`/`/menu` gives everyone one button
+per plan dated today or later (usually just today's; two once a plan for
+tomorrow exists), plus **Open library**/**Open archive** for bosses. None of
+the pages link to each other beyond that — by design, so there's no in-app
+"Library" or "Archive" button on the checklist, etc.
 
 ## Villas
 
@@ -64,20 +61,42 @@ selection (nothing carries over from today) unless a plan for tomorrow
 already exists (e.g. the date has since rolled over), in which case it shows
 that plan's current selection, same as **Today** normally does.
 
+Sending tomorrow's plan does **not** replace today's — both stay
+independently live and editable by their own id (see "Plans are addressed by
+id, not 'whatever's current'" below). Toggling back to **Today** afterward
+still shows and edits today's real, in-progress plan, ticks and all.
+
 Whenever a plan actually goes out **for a date it hasn't already gone out
 for**:
 - everyone in `CREW_IDS` gets **"Work Plan DD/MM/YYYY"** with a **WORK**
-  button that opens the checklist Mini App;
+  button that opens that specific plan;
 - every boss (`BOSS_ID` + `EXTRA_BOSS_IDS`) gets a confirmation too —
-  **"Work Plan DD/MM/YYYY"** with an **Open checklist** button;
+  **"Work Plan DD/MM/YYYY"** with an **Open checklist** button, same deal;
 - the library itself shows a "✅ ...plan sent" confirmation toast.
 
 Re-sending for a date that's **already** live (the common case — tweaking
 today's plan mid-day) updates it in place instead and sends **no new
-notification** — the existing WORK button already opens the live checklist,
-so a fresh message for every tweak was just confusing people into thinking
-each one needed separate photos. The toast still confirms in-app ("✅ ...plan
-updated").
+notification** — the existing WORK button already opens that date's
+checklist and always reflects its latest state, so a fresh message for every
+tweak was just confusing people into thinking each one needed separate
+photos. The toast still confirms in-app ("✅ ...plan updated").
+
+## Plans are addressed by id, not "whatever's current"
+
+Earlier versions had one implicit "current plan" — whatever was sent most
+recently. That broke the moment a boss sent tomorrow's plan while today's
+was still in progress: the one shared checklist link would suddenly show
+tomorrow's empty list, and workers checking their existing "today" message
+would land on the wrong plan.
+
+Every checklist link now points at a specific plan: `/?plan=<id>`. There is
+no bare "open the checklist" URL — `/start`/`/menu` and every notification
+always supply `?plan=<id>` for a specific date, and the page shows an "open
+this from the menu in Telegram" message if it's ever missing rather than
+guessing which plan to show. `/api/checklist` takes the same `plan_id`
+explicitly. This is also why **Send now** can safely update today's plan
+after tomorrow's has been sent (see above) — "today's plan" and "tomorrow's
+plan" are just two different ids, not a single pointer that moves.
 
 `CREW_IDS` is empty by default — until you fill it in, plans still send
 correctly, they just don't proactively notify anyone (workers can still
@@ -347,13 +366,22 @@ Still on polling rather than webhooks. Polling works fine on an always-on
 device and avoids a config mode; webhook support is the tidier long-term
 option (`spec.md` section 8) but isn't built.
 
-## 5. Register the Mini App URL with BotFather
+## 5. Leave the Mini App / "OPEN" button disabled in BotFather
 
-In [@BotFather](https://t.me/BotFather): `/mybots` → your bot → **Bot
-Settings** → **Configure Mini App** (older BotFather versions call this
-**Menu Button** → **Configure menu button**) → set it to your `PUBLIC_URL`.
+Older setups pointed BotFather's **Configure Mini App** (a.k.a. **Menu
+Button** → **Configure menu button**) at `PUBLIC_URL`, giving a persistent
+"OPEN" chip in the chat. That's deliberately **not** set up now: it's the
+one thing that could land someone on the bare base URL with no `plan_id` —
+exactly what "Plans are addressed by id" above is trying to avoid. Leave
+that BotFather setting unconfigured (or explicitly disable it, `/mybots` →
+your bot → **Bot Settings** → **Configure Mini App** → **Disable Mini
+App**, if it was set previously).
 
-This is a one-time step, since the tunnel's hostname is permanent.
+The ☰ command menu stays as-is — it just lists `/start`/`/menu`, which is
+the real entry point (see "Try it" below): each reply carries its own
+dated, `?plan=<id>` buttons, built after the bot knows who's asking and
+which plans actually exist. Nothing in `PUBLIC_URL` itself needs
+registering anywhere; the bot constructs every button from it at send time.
 
 ## 6. Run
 
@@ -365,8 +393,10 @@ This starts the web server and the bot (polling) together. Leave it running.
 
 ## 7. Try it
 
-1. Open your bot in Telegram, send `/start` (from an ID in `ALLOWED_IDS` —
-   see Access control above) — it replies with an **Open checklist** button.
+1. Open your bot in Telegram, send `/start` or `/menu` (from an ID in
+   `ALLOWED_IDS` — see Access control above) — it replies with a **Work
+   plan DD/MM/YYYY** button (one per plan dated today or later; usually
+   just one).
 2. Tap it → the checklist opens as "Work Plan DD/MM/YYYY", grouped by villa
    then section.
 3. Tap an item → the camera opens. On Android this is an in-app camera
@@ -379,10 +409,12 @@ This starts the web server and the bot (polling) together. Leave it running.
 
 ## 8. Try the boss library (slice 2)
 
-1. As the boss (your `.env` `BOSS_ID`), send `/start` — you get **Open
-   checklist**, **Open library**, and **Open archive** buttons.
+1. As the boss (your `.env` `BOSS_ID`), send `/start`/`/menu` — you get the
+   same dated **Work plan DD/MM/YYYY** button(s) as workers, plus **Open
+   library** and **Open archive**.
 2. Tap **Open library** → see every library item, grouped by villa then
-   section, with items in the *current* plan pre-selected (highlighted).
+   section, with items already on today's (or tomorrow's, once toggled)
+   plan pre-selected (highlighted).
 3. Type new item text, a **Villa** (autocompletes; defaults to `908`), and
    optionally a section → **Add** — it's saved and auto-selected.
 4. Tap any item to toggle it in/out of the plan you're assembling, or use a
@@ -428,9 +460,11 @@ Archive one entry per day.
   hardcoded in [`app/db.py`](app/db.py) as `SEED_ITEMS`, used only to
   populate a brand-new (empty) database. The live plan starts **empty**
   until the boss sends one — no auto-fill.
-- Sending a plan **replaces** what workers see and resets tick/finished
-  state for the new generation, but the old generation's rows stay in the
-  database (see Archive above) — nothing is actually deleted.
+- Sending a plan for a date that doesn't have one yet starts a fresh
+  generation with everything unfinished; it does **not** touch any other
+  date's plan (see "Plans are addressed by id" above). Nothing is ever
+  actually deleted — every generation's rows stay in the database (see
+  Archive above).
 - `initData` is verified with the HMAC check Telegram documents, and is
   accepted for 24h from `auth_date` (a shared day-checklist should stay
   usable all day).
