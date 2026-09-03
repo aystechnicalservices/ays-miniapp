@@ -403,17 +403,13 @@ h1 {
   flex-wrap: wrap;
 }
 
-#send-row.hidden { display: none; }
-
 #send-count {
   font-size: 13px;
   color: var(--hint);
   margin-right: auto;
 }
 
-#send-now-btn,
-#schedule-open-btn,
-#schedule-confirm-btn {
+#send-now-btn {
   padding: 12px 16px;
   border-radius: 10px;
   border: none;
@@ -424,77 +420,11 @@ h1 {
   cursor: pointer;
 }
 
-#schedule-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-#schedule-picker.hidden { display: none; }
-
-#schedule-time-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-#schedule-hour,
-#schedule-minute {
-  width: 64px;
-  padding: 8px 6px;
-  border-radius: 8px;
-  border: 1px solid var(--section-bg);
-  background: var(--section-bg);
-  color: var(--text);
-  font-size: 16px;
-  text-align: center;
-}
-
-#schedule-picker-actions {
-  display: flex;
-  gap: 8px;
-}
-
-#schedule-confirm-btn {
-  flex: 1;
-}
-
-#schedule-back-btn {
-  flex: 1;
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: none;
-  background: var(--section-bg);
-  color: var(--text);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-#schedule-status {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--section-bg);
-  font-size: 13px;
-}
-
-#schedule-status.hidden { display: none; }
-
-#schedule-cancel-btn {
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
+.date-toggle {
   color: var(--link);
-  font-size: 13px;
-  font-weight: 600;
   cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 #viewer-close {

@@ -49,24 +49,35 @@ blank), and both the library and the worker checklist group items by villa
 first, then section within each villa — so a plan can freely mix items from
 several villas and everyone still sees them clearly separated.
 
-## Sending a plan: now or scheduled
+## Sending a plan: today or tomorrow
 
-The **Send** row in the library has a time picker plus **Send now** /
-**Schedule** buttons. Scheduling parses the time as HH:MM in `TIMEZONE`; if
-that time has already passed today it's scheduled for tomorrow instead. Only
-one scheduled send is kept at a time — scheduling a new one (or sending now)
-replaces/cancels whatever was pending, and there's a **Cancel** control shown
-while one is pending. This is a simple in-process `asyncio` timer, not a
-persisted job: **if the server restarts, a pending scheduled send is lost**
-(a proper persisted scheduler is spec section 9's slice 4, not built yet).
+The library's heading (e.g. "Today: 03/09/2026") is a clickable toggle
+between **Today** and **Tomorrow** — whichever is selected is the date
+**Send now** applies to. This replaced an earlier HH:MM scheduling picker,
+which added a layer of timing complexity nobody needed: preparing tomorrow's
+plan the evening before now just means switching the toggle before sending,
+same everyday **Send now** button, no separate flow.
 
-Whenever a plan actually goes out (immediately or once a schedule fires):
+Every send takes effect immediately, for whichever date is selected — there's
+no deferred/background job. Switching to **Tomorrow** starts an empty
+selection (nothing carries over from today) unless a plan for tomorrow
+already exists (e.g. the date has since rolled over), in which case it shows
+that plan's current selection, same as **Today** normally does.
+
+Whenever a plan actually goes out **for a date it hasn't already gone out
+for**:
 - everyone in `CREW_IDS` gets **"Work Plan DD/MM/YYYY"** with a **WORK**
   button that opens the checklist Mini App;
 - every boss (`BOSS_ID` + `EXTRA_BOSS_IDS`) gets a confirmation too —
   **"Work Plan DD/MM/YYYY"** with an **Open checklist** button;
-- the library itself shows a "✅ Plan sent / Plan scheduled" confirmation
-  toast, not just the small status box.
+- the library itself shows a "✅ ...plan sent" confirmation toast.
+
+Re-sending for a date that's **already** live (the common case — tweaking
+today's plan mid-day) updates it in place instead and sends **no new
+notification** — the existing WORK button already opens the live checklist,
+so a fresh message for every tweak was just confusing people into thinking
+each one needed separate photos. The toast still confirms in-app ("✅ ...plan
+updated").
 
 `CREW_IDS` is empty by default — until you fill it in, plans still send
 correctly, they just don't proactively notify anyone (workers can still
@@ -262,7 +273,7 @@ Fill in `.env`:
   registered... Your Telegram ID is ..." message someone gets if they try
   without being added yet.
 - `TIMEZONE` — IANA name (default `Asia/Dubai`), used for the notification
-  date and for resolving scheduled send times.
+  date and for what "today"/"tomorrow" mean in the library.
 - `PUBLIC_URL` — fill this in after step 4 below.
 
 ## 3. Set up the media storage channel
@@ -377,31 +388,39 @@ This starts the web server and the bot (polling) together. Leave it running.
 4. Tap any item to toggle it in/out of the plan you're assembling, or use a
    villa's **Select all** / **Deselect all** (in that villa's header) to
    toggle every item in it at once. Tap the **×** to delete an item from the
-   library entirely, any time — if it's finished on today's checklist it
+   library entirely, any time — if it's finished on the live checklist it
    stays there regardless; see "Sending vs. updating" below.
-5. Tap **Send now**, or tap **Schedule** to open an hour/minute picker
-   (**Confirm** sends it, **Back** cancels) — a "✅ Plan sent/scheduled"
-   toast confirms it.
-6. Reopen the worker checklist — it now shows "Work Plan DD/MM/YYYY" with
+5. The heading (e.g. "Today: 03/09/2026") is clickable — tap it to switch
+   to **Tomorrow** and back. Whichever is showing is what **Send now**
+   applies to.
+6. Tap **Send now** — a "✅ ...plan sent" (or "...updated") toast confirms it.
+7. Reopen the worker checklist — it now shows "Work Plan DD/MM/YYYY" with
    exactly that set of items. If `CREW_IDS` is set, everyone in it also gets
-   a "Work Plan DD/MM/YYYY" message with a WORK button.
+   a "Work Plan DD/MM/YYYY" message with a WORK button — but only the first
+   time that date's plan goes out; see below.
 
 ## Sending vs. updating
 
-**Send now** does one of two things, decided automatically by whether a plan
-has already gone out today:
+**Send now** does one of two things, decided automatically by whether the
+selected date (Today or Tomorrow) already has a plan live:
 
-- **Nothing sent yet today** — starts a fresh plan. Everything on it starts
-  unfinished.
-- **Already sent today** — updates that same plan in place instead of
-  starting over. A finished item keeps its tick, photo and who-did-it no
-  matter what happens in the library afterward, even if it's deselected or
-  deleted outright. An unfinished item not currently selected is dropped
-  from the checklist. Anything newly selected is added as a fresh,
-  unfinished entry.
+- **Nothing sent yet for that date** — starts a fresh plan. Everything on it
+  starts unfinished, and the crew/boss notifications go out.
+- **Already sent for that date** — updates that same plan in place instead
+  of starting over, and sends **no new notification** (the WORK button from
+  the original notification already opens the live checklist, so repeated
+  messages for every tweak just confused people into thinking each one
+  needed its own photos). A finished item keeps its tick, photo and
+  who-did-it no matter what happens in the library afterward, even if it's
+  deselected or deleted outright. An unfinished item not currently selected
+  is dropped from the checklist. Anything newly selected is added as a
+  fresh, unfinished entry.
 
-Tomorrow, the first **Send now** starts a new plan again (a new day always
-gets a clean slate), which is also what keeps the Archive one entry per day.
+There's no deferred/scheduled activation — sending for **Tomorrow** takes
+effect immediately (tonight, say), it's just labeled with tomorrow's date
+and becomes the new live checklist right away. The next calendar day, the
+first send for that date starts fresh again, which is also what keeps the
+Archive one entry per day.
 
 ## Notes / assumptions made
 

@@ -1,11 +1,10 @@
-import asyncio
 import hashlib
 import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -30,7 +29,6 @@ async def lifespan(app: FastAPI):
     db.init_db()
     application = bot_module.build_application()
     app.state.bot_application = application
-    app.state.scheduled_job = None
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
@@ -40,8 +38,6 @@ async def lifespan(app: FastAPI):
     else:
         log.warning("PUBLIC_URL not set in .env — set it to your https tunnel URL")
     yield
-    if app.state.scheduled_job is not None:
-        app.state.scheduled_job["task"].cancel()
     await application.updater.stop()
     await application.stop()
     await application.shutdown()
@@ -111,18 +107,23 @@ def _tz() -> ZoneInfo:
     return ZoneInfo(config.TIMEZONE)
 
 
-def _current_plan_date(tz):
-    """The local calendar date of the currently live plan, or None if
-    nothing's been sent yet."""
-    sent_at = db.get_plan_sent_at()
-    if not sent_at:
-        return None
-    return datetime.fromisoformat(sent_at).astimezone(tz).date()
+def _today_iso(tz) -> str:
+    return datetime.now(tz).date().isoformat()
+
+
+def _tomorrow_iso(tz) -> str:
+    return (datetime.now(tz).date() + timedelta(days=1)).isoformat()
+
+
+def _fmt_iso_date(iso: str) -> str:
+    return datetime.fromisoformat(iso).strftime("%d/%m/%Y")
 
 
 def _plan_date_str():
-    d = _current_plan_date(_tz())
-    return d.strftime("%d/%m/%Y") if d else None
+    """The live plan's labeled date, formatted DD/MM/YYYY, or None if
+    nothing's been sent yet."""
+    iso = db.get_current_plan_date()
+    return _fmt_iso_date(iso) if iso else None
 
 
 class WhoAmIRequest(BaseModel):
@@ -365,61 +366,46 @@ class RemoveItemRequest(BaseModel):
 class SendPlanRequest(BaseModel):
     init_data: str
     item_ids: List[int]
-    send_at: Optional[str] = None  # "HH:MM" 24h, in TIMEZONE; omit/None = send now
-
-
-class CancelScheduleRequest(BaseModel):
-    init_data: str
-
-
-def _schedule_info(app: FastAPI):
-    job = app.state.scheduled_job
-    if job is None:
-        return None
-    target: datetime = job["target"]
-    return {"time": target.strftime("%H:%M"), "date": target.strftime("%d/%m/%Y")}
+    target: str = "today"  # "today" | "tomorrow" — which date this plan is for
 
 
 def _boss_state(app: FastAPI):
+    tz = _tz()
+    today_iso = _today_iso(tz)
+    tomorrow_iso = _tomorrow_iso(tz)
+    current_iso = db.get_current_plan_date()
+    current_target = None
+    if current_iso == today_iso:
+        current_target = "today"
+    elif current_iso == tomorrow_iso:
+        current_target = "tomorrow"
     return {
         "library": db.list_library(),
-        "pending_schedule": _schedule_info(app),
         "plan_date": _plan_date_str(),
+        "today_date": _fmt_iso_date(today_iso),
+        "tomorrow_date": _fmt_iso_date(tomorrow_iso),
+        "current_target": current_target,
     }
 
 
-def _plan_already_sent_today(tz) -> bool:
-    return _current_plan_date(tz) == datetime.now(tz).date()
-
-
-async def _fire_plan(app: FastAPI, item_ids: List[int]) -> None:
+async def _fire_plan(app: FastAPI, item_ids: List[int], target: str) -> bool:
+    """Sends or updates the plan for `target` ("today"/"tomorrow"). Returns
+    True if this started a fresh generation (and notified everyone), False
+    if it just updated the plan already live for that date in place (no
+    notification — the crew's existing WORK button for that date already
+    points at the live checklist, so a fresh message would just be noise
+    and has confused people into thinking each one needs its own photos)."""
     tz = _tz()
-    if _plan_already_sent_today(tz):
-        # Same-day re-send: update the live plan in place instead of
-        # starting a new generation, so finished items (tick, photo, who)
-        # aren't wiped by a mid-day tweak.
+    target_iso = _tomorrow_iso(tz) if target == "tomorrow" else _today_iso(tz)
+    if db.get_current_plan_date() == target_iso:
         db.update_plan(item_ids)
-    else:
-        db.send_plan(item_ids)
-    date_str = datetime.now(tz).strftime("%d/%m/%Y")
+        return False
+    db.send_plan(item_ids, target_iso)
+    date_str = _fmt_iso_date(target_iso)
     bot = app.state.bot_application.bot
     await bot_module.notify_crew(bot, date_str)
     await bot_module.notify_boss_sent(bot, date_str)
-
-
-async def _scheduled_send(app: FastAPI, item_ids: List[int], target: datetime) -> None:
-    delay = (target - datetime.now(target.tzinfo)).total_seconds()
-    if delay > 0:
-        await asyncio.sleep(delay)
-    await _fire_plan(app, item_ids)
-    app.state.scheduled_job = None
-
-
-def _cancel_pending(app: FastAPI) -> None:
-    job = app.state.scheduled_job
-    if job is not None:
-        job["task"].cancel()
-        app.state.scheduled_job = None
+    return True
 
 
 @app.post("/api/boss/library")
@@ -451,40 +437,14 @@ async def api_boss_library_remove(req: RemoveItemRequest, request: Request):
 
 @app.post("/api/boss/send-plan")
 async def api_boss_send_plan(req: SendPlanRequest, request: Request):
-    # Empty item_ids is valid: on a same-day re-send it means "clear every
-    # unfinished task" (finished ones are untouched regardless — see
-    # db.update_plan); on a fresh send it means "send an empty checklist",
-    # which is an unusual choice but the boss's to make.
+    # Empty item_ids is valid: on an update it means "clear every unfinished
+    # task" (finished ones are untouched regardless — see db.update_plan);
+    # on a fresh send it means "send an empty checklist", which is an
+    # unusual choice but the boss's to make.
     _authenticate_boss(req.init_data)
-
-    app = request.app
-    _cancel_pending(app)
-
-    if not req.send_at:
-        await _fire_plan(app, req.item_ids)
-        return _boss_state(app)
-
-    try:
-        target_time = datetime.strptime(req.send_at, "%H:%M").time()
-    except ValueError:
-        raise HTTPException(status_code=400, detail="send_at must be HH:MM")
-
-    tz = _tz()
-    now = datetime.now(tz)
-    target = datetime.combine(now.date(), target_time, tzinfo=tz)
-    if target <= now:
-        target += timedelta(days=1)
-
-    task = asyncio.create_task(_scheduled_send(app, req.item_ids, target))
-    app.state.scheduled_job = {"task": task, "target": target}
-    return _boss_state(app)
-
-
-@app.post("/api/boss/cancel-schedule")
-async def api_boss_cancel_schedule(req: CancelScheduleRequest, request: Request):
-    _authenticate_boss(req.init_data)
-    _cancel_pending(request.app)
-    return _boss_state(request.app)
+    target = req.target if req.target in ("today", "tomorrow") else "today"
+    is_fresh = await _fire_plan(request.app, req.item_ids, target)
+    return {**_boss_state(request.app), "target": target, "is_fresh": is_fresh}
 
 
 class HistoryPlanRequest(BaseModel):
@@ -498,9 +458,8 @@ async def api_boss_history(req: BossRequest):
     tz = _tz()
     plans = db.list_plans()
     for p in plans:
-        dt = datetime.fromisoformat(p["sent_at"]).astimezone(tz)
-        p["date"] = dt.strftime("%d/%m/%Y")
-        p["time"] = dt.strftime("%H:%M")
+        p["date"] = _fmt_iso_date(p["plan_date"]) if p["plan_date"] else "—"
+        p["time"] = datetime.fromisoformat(p["sent_at"]).astimezone(tz).strftime("%H:%M")
     return {"plans": plans}
 
 

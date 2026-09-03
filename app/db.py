@@ -7,7 +7,10 @@ Model:
   plan_items.library_item_id is a real foreign key, so deleting one referenced
   by archive history would fail outright (or, worse, silently corrupt the
   archive's ability to show what a past task actually was).
-- plans: one row per "send" — each plan generation has its own sent_at.
+- plans: one row per "send" — each plan generation has its own sent_at
+  (the real timestamp it was sent) and plan_date (the calendar date it's
+  labeled for — "today" or "tomorrow" at send time — independent of
+  sent_at, since a boss can send tomorrow's plan tonight).
 - plan_items: a generation's assembled checklist — references library_items
   by id, tagged with the plan generation (plan_id) it belongs to. Sending a
   new plan does NOT delete old plan_items/item_state: those stay in the
@@ -165,10 +168,15 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS plans (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sent_at TEXT NOT NULL
+                sent_at TEXT NOT NULL,
+                plan_date TEXT NOT NULL DEFAULT ''
             )
             """
         )
+        if not _has_column(conn, "plans", "plan_date"):
+            conn.execute("ALTER TABLE plans ADD COLUMN plan_date TEXT NOT NULL DEFAULT ''")
+            conn.execute("UPDATE plans SET plan_date = date(sent_at) WHERE plan_date = ''")
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS plan_items (
@@ -204,8 +212,10 @@ def init_db() -> None:
                 )
 
 
-def _replace_plan(conn, library_item_ids: list[int]) -> None:
-    cur = conn.execute("INSERT INTO plans (sent_at) VALUES (?)", (_now(),))
+def _replace_plan(conn, library_item_ids: list[int], plan_date: str) -> None:
+    cur = conn.execute(
+        "INSERT INTO plans (sent_at, plan_date) VALUES (?, ?)", (_now(), plan_date)
+    )
     plan_id = cur.lastrowid
     for i, library_item_id in enumerate(library_item_ids):
         item_cur = conn.execute(
@@ -218,25 +228,28 @@ def _replace_plan(conn, library_item_ids: list[int]) -> None:
         )
 
 
-def send_plan(library_item_ids: list[int]) -> None:
+def send_plan(library_item_ids: list[int], plan_date: str) -> None:
+    """Starts a fresh plan generation labeled for plan_date (an ISO
+    YYYY-MM-DD string — "today" or "tomorrow" at the time this is called)."""
     with get_conn() as conn:
-        _replace_plan(conn, library_item_ids)
+        _replace_plan(conn, library_item_ids, plan_date)
 
 
 def update_plan(library_item_ids: list[int]) -> None:
     """Applies a new selection to the plan that's already live, in place —
-    used when the boss re-sends during the same day it was first sent, so a
-    tweak mid-day doesn't wipe the crew's progress. A finished item is never
-    touched, no matter what the new selection says: it keeps its tick,
-    photo and timestamp forever, even if deselected or deleted from the
-    library entirely. An unfinished item not in the new selection is
-    dropped outright. Anything newly selected that isn't already on the
-    plan is added as a fresh, unfinished entry."""
+    used when the boss re-sends targeting the same date it's already
+    labeled for, so a tweak doesn't wipe the crew's progress or its date.
+    A finished item is never touched, no matter what the new selection
+    says: it keeps its tick, photo and timestamp forever, even if
+    deselected or deleted from the library entirely. An unfinished item
+    not in the new selection is dropped outright. Anything newly selected
+    that isn't already on the plan is added as a fresh, unfinished entry.
+    Caller is responsible for only calling this when a current plan
+    already exists for the target date (see main.py's _fire_plan)."""
     with get_conn() as conn:
         plan_row = conn.execute("SELECT MAX(id) AS id FROM plans").fetchone()
         plan_id = plan_row["id"]
         if plan_id is None:
-            _replace_plan(conn, library_item_ids)
             return
 
         existing = conn.execute(
@@ -276,16 +289,18 @@ def update_plan(library_item_ids: list[int]) -> None:
             next_sort += 1
 
 
-def get_plan_sent_at():
+def get_current_plan_date():
+    """ISO date (YYYY-MM-DD) the live plan is labeled for, or None if no
+    plan has ever been sent."""
     with get_conn() as conn:
-        row = conn.execute("SELECT sent_at FROM plans ORDER BY id DESC LIMIT 1").fetchone()
-        return row["sent_at"] if row else None
+        row = conn.execute("SELECT plan_date FROM plans ORDER BY id DESC LIMIT 1").fetchone()
+        return row["plan_date"] if row and row["plan_date"] else None
 
 
 def list_plans():
     """All plan generations, most recent first, with a simple finished/total count."""
     with get_conn() as conn:
-        plan_rows = conn.execute("SELECT id, sent_at FROM plans ORDER BY id DESC").fetchall()
+        plan_rows = conn.execute("SELECT id, sent_at, plan_date FROM plans ORDER BY id DESC").fetchall()
         current_id_row = conn.execute("SELECT MAX(id) AS m FROM plans").fetchone()
         current_id = current_id_row["m"] if current_id_row else None
 
@@ -304,6 +319,7 @@ def list_plans():
                 {
                     "id": p["id"],
                     "sent_at": p["sent_at"],
+                    "plan_date": p["plan_date"],
                     "total": counts["total"],
                     "done": counts["done"],
                     "current": p["id"] == current_id,

@@ -58,12 +58,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         message_text = "Menu"
     else:
-        tz = ZoneInfo(config.TIMEZONE)
-        sent_at = db.get_plan_sent_at()
-        if sent_at:
-            date_str = datetime.fromisoformat(sent_at).astimezone(tz).strftime("%d/%m/%Y")
+        current_date = db.get_current_plan_date()
+        if current_date:
+            date_str = datetime.fromisoformat(current_date).strftime("%d/%m/%Y")
         else:
-            date_str = datetime.now(tz).strftime("%d/%m/%Y")
+            date_str = datetime.now(ZoneInfo(config.TIMEZONE)).strftime("%d/%m/%Y")
         message_text = f"Work plan {date_str}"
     await update.message.reply_text(message_text, reply_markup=InlineKeyboardMarkup(buttons))
 

@@ -16,22 +16,14 @@ const villaListEl = document.getElementById("villa-list");
 const addSectionEl = document.getElementById("add-section");
 const sectionListEl = document.getElementById("section-list");
 const sendCountEl = document.getElementById("send-count");
-const sendRowEl = document.getElementById("send-row");
 const sendNowBtn = document.getElementById("send-now-btn");
-const scheduleOpenBtn = document.getElementById("schedule-open-btn");
-const schedulePickerEl = document.getElementById("schedule-picker");
-const scheduleHourEl = document.getElementById("schedule-hour");
-const scheduleMinuteEl = document.getElementById("schedule-minute");
-const scheduleConfirmBtn = document.getElementById("schedule-confirm-btn");
-const scheduleBackBtn = document.getElementById("schedule-back-btn");
-const scheduleStatusEl = document.getElementById("schedule-status");
-const scheduleStatusTextEl = document.getElementById("schedule-status-text");
-const scheduleCancelBtn = document.getElementById("schedule-cancel-btn");
 
 const initData = tg ? tg.initData : "";
 
 let selectedIds = new Set();
 let latestLibrary = [];
+let latestBossState = null;
+let selectedTarget = "today"; // "today" | "tomorrow" — which date we're editing
 let busy = false;
 let toastTimer = null;
 
@@ -53,15 +45,6 @@ function showToast(text) {
     toastEl.classList.remove("show");
     setTimeout(() => toastEl.classList.add("hidden"), 300);
   }, 3000);
-}
-
-function renderScheduleStatus(pending) {
-  if (!pending) {
-    scheduleStatusEl.classList.add("hidden");
-    return;
-  }
-  scheduleStatusTextEl.textContent = `Scheduled for ${pending.time} on ${pending.date}`;
-  scheduleStatusEl.classList.remove("hidden");
 }
 
 function render(library) {
@@ -209,22 +192,45 @@ function toggleSelect(itemId) {
   render(latestLibrary);
 }
 
-function updateHeading(planDate) {
-  headingEl.textContent = planDate ? `Work Plan ${planDate}` : "Library";
+function targetLabel(target) {
+  return target === "tomorrow" ? "Tomorrow" : "Today";
+}
+
+function targetDate(data, target) {
+  return target === "tomorrow" ? data.tomorrow_date : data.today_date;
+}
+
+function updateHeading() {
+  if (!latestBossState) return;
+  headingEl.textContent = `${targetLabel(selectedTarget)}: ${targetDate(latestBossState, selectedTarget)}`;
+}
+
+function selectionForTarget(data, target) {
+  if (target === data.current_target) {
+    return new Set(data.library.filter((i) => i.active).map((i) => i.id));
+  }
+  return new Set();
 }
 
 function applyBossState(data, resetSelection) {
+  latestBossState = data;
   if (resetSelection) {
-    selectedIds = new Set(data.library.filter((i) => i.active).map((i) => i.id));
+    selectedIds = selectionForTarget(data, selectedTarget);
   } else {
     const validIds = new Set(data.library.map((i) => i.id));
     selectedIds = new Set([...selectedIds].filter((id) => validIds.has(id)));
   }
-  updateHeading(data.plan_date);
-  renderScheduleStatus(data.pending_schedule);
-
+  updateHeading();
   render(data.library);
 }
+
+headingEl.addEventListener("click", () => {
+  if (!latestBossState) return;
+  selectedTarget = selectedTarget === "today" ? "tomorrow" : "today";
+  selectedIds = selectionForTarget(latestBossState, selectedTarget);
+  updateHeading();
+  render(latestBossState.library);
+});
 
 async function loadLibrary(resetSelection) {
   if (!initData) {
@@ -309,14 +315,14 @@ async function removeItem(itemId) {
   }
 }
 
-async function sendPlan(sendAt) {
+async function sendPlan() {
   if (busy) return;
   busy = true;
   try {
     const res = await fetch("/api/boss/send-plan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ init_data: initData, item_ids: [...selectedIds], send_at: sendAt || null }),
+      body: JSON.stringify({ init_data: initData, item_ids: [...selectedIds], target: selectedTarget }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -326,7 +332,8 @@ async function sendPlan(sendAt) {
     const data = await res.json();
     hideBanner();
     applyBossState(data, false);
-    showToast(sendAt ? `✅ Plan scheduled for ${sendAt}` : "✅ Plan sent — workers can see it now");
+    const label = targetLabel(data.target);
+    showToast(data.is_fresh ? `✅ ${label}'s plan sent — workers can see it now` : `✅ ${label}'s plan updated`);
   } catch (err) {
     showBanner("Network error sending the plan.");
   } finally {
@@ -334,66 +341,6 @@ async function sendPlan(sendAt) {
   }
 }
 
-function populateTimeSelects() {
-  for (let h = 0; h < 24; h++) {
-    const opt = document.createElement("option");
-    opt.value = String(h).padStart(2, "0");
-    opt.textContent = String(h).padStart(2, "0");
-    scheduleHourEl.appendChild(opt);
-  }
-  for (let m = 0; m < 60; m++) {
-    const opt = document.createElement("option");
-    opt.value = String(m).padStart(2, "0");
-    opt.textContent = String(m).padStart(2, "0");
-    scheduleMinuteEl.appendChild(opt);
-  }
-  const now = new Date();
-  scheduleHourEl.value = String(now.getHours()).padStart(2, "0");
-  scheduleMinuteEl.value = String(now.getMinutes()).padStart(2, "0");
-}
-populateTimeSelects();
-
-function openSchedulePicker() {
-  sendRowEl.classList.add("hidden");
-  schedulePickerEl.classList.remove("hidden");
-}
-
-function closeSchedulePicker() {
-  schedulePickerEl.classList.add("hidden");
-  sendRowEl.classList.remove("hidden");
-}
-
-sendNowBtn.addEventListener("click", () => sendPlan(null));
-scheduleOpenBtn.addEventListener("click", openSchedulePicker);
-scheduleBackBtn.addEventListener("click", closeSchedulePicker);
-scheduleConfirmBtn.addEventListener("click", () => {
-  const sendAt = `${scheduleHourEl.value}:${scheduleMinuteEl.value}`;
-  sendPlan(sendAt);
-  closeSchedulePicker();
-});
-
-scheduleCancelBtn.addEventListener("click", async () => {
-  if (busy) return;
-  busy = true;
-  try {
-    const res = await fetch("/api/boss/cancel-schedule", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ init_data: initData }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      showBanner(body.detail || "Could not cancel the schedule.");
-      return;
-    }
-    const data = await res.json();
-    hideBanner();
-    renderScheduleStatus(data.pending_schedule);
-  } catch (err) {
-    showBanner("Network error cancelling the schedule.");
-  } finally {
-    busy = false;
-  }
-});
+sendNowBtn.addEventListener("click", () => sendPlan());
 
 loadLibrary(true);

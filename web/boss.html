@@ -10,7 +10,7 @@
 <body>
   <div id="app">
     <header>
-      <h1 id="heading">Library</h1>
+      <h1 id="heading" class="date-toggle"></h1>
     </header>
 
     <div id="banner" class="hidden"></div>
@@ -30,25 +30,9 @@
   </div>
 
   <div id="send-bar">
-    <div id="schedule-status" class="hidden">
-      <span id="schedule-status-text"></span>
-      <button type="button" id="schedule-cancel-btn">Cancel</button>
-    </div>
     <div id="send-row">
       <span id="send-count">0 selected</span>
       <button type="button" id="send-now-btn">Send now</button>
-      <button type="button" id="schedule-open-btn">Schedule</button>
-    </div>
-    <div id="schedule-picker" class="hidden">
-      <div id="schedule-time-row">
-        <select id="schedule-hour"></select>
-        <span>:</span>
-        <select id="schedule-minute"></select>
-      </div>
-      <div id="schedule-picker-actions">
-        <button type="button" id="schedule-confirm-btn">Confirm</button>
-        <button type="button" id="schedule-back-btn">Back</button>
-      </div>
     </div>
   </div>
 
