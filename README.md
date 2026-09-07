@@ -110,10 +110,12 @@ finished." message.
 
 Sending a new plan does **not** delete the old one. Every "send" creates a
 new row in the `plans` table; each plan's items and their tick/finished
-state stay in `plan_items`/`item_state` tied to that row forever. Only the
-most recent plan is "current" — that's what the worker checklist shows, what
-the library highlights as active, and what blocks a library item from being
-deleted.
+state stay in `plan_items`/`item_state` tied to that row forever. Every plan
+dated today or later stays fully live (see "Plans are addressed by id"
+above); anything dated before today is pure archive — read-only, browsed by
+`plan_id`. Deleting a library item never blocks on this either way — it
+just stops being offered for new plans; anything already on a plan, past or
+present, is untouched.
 
 **Where the data actually lives, and limits:** `ays.db` (SQLite, plain text
 + numbers only — item text, timestamps, names, `file_id`s) holds everything
@@ -136,7 +138,41 @@ stays a distinct destination rather than something bolted onto the other
 two). It's a list of every past plan (date, time, X/Y finished, marked if
 it's the current one). Tap one to see its items read-only, grouped by
 villa/section, with who finished each and when — tap the 📷/🎬 icon to view
-the actual photo/video, same as the live checklist.
+the actual photo/video, same as the live checklist. A **Post report to
+Reports channel** button sits above the items — see "Daily reports" below.
+
+## Daily reports
+
+When every item on a plan is finished (the same all-done check that sends
+"All tasks for DD/MM/YYYY are finished." to the boss), the bot also posts a
+structured report to `REPORTS_CHAT_ID` — a plain-text summary followed by
+the finished items' photos/videos, re-sent by their already-stored
+`file_id` (no re-upload, no extra Telegram traffic):
+
+```
+Daily Report — DD/MM/YYYY
+908 — Area Cleaning
+  ✓ Check the villa area and find any urgent work. — Yadvinder at 09:14
+  ✓ Remove leaves, plant waste and all rubbish. — Selvan at 09:20
+908 — Swimming Pool
+  ✗ Clean the swimming pool. — not done
+...
+Total: 41/42 finished
+```
+
+Unfinished items show as `✗ ... — not done` rather than being left out, so a
+partial day is still a complete, honest report. This is entirely
+deterministic — assembled straight from the DB, no AI involved.
+
+For a day that finished partial and never hit all-done automatically (or to
+re-post any day), tap **Post report to Reports channel** on that plan's
+Archive entry — same code path, triggered manually instead of by the
+all-done hook.
+
+`REPORTS_CHAT_ID` is optional (see step 3 above): with it unset, the
+automatic trigger just logs a warning and skips silently — never breaks the
+all-done flow — while the manual button surfaces a clear error telling you
+it isn't configured yet.
 
 ## How the media loop works
 
@@ -307,6 +343,11 @@ Fill in `.env`:
    re-add a `MessageHandler(filters.UpdateType.CHANNEL_POST, ...)` in
    [`app/bot.py`](app/bot.py) that logs `update.channel_post.chat.id`.)
 
+Optionally, do the same again for a second private channel ("AYS Reports")
+to get `REPORTS_CHAT_ID` — see "Daily reports" below. Skippable for now:
+the app runs fine without it, the report feature just stays quietly off
+until it's set.
+
 ## 4. Expose the app over HTTPS
 
 Telegram requires the Mini App page to be served over HTTPS. This runs on
@@ -419,9 +460,12 @@ This starts the web server and the bot (polling) together. Leave it running.
    optionally a section → **Add** — it's saved and auto-selected.
 4. Tap any item to toggle it in/out of the plan you're assembling, or use a
    villa's **Select all** / **Deselect all** (in that villa's header) to
-   toggle every item in it at once. Tap the **×** to delete an item from the
-   library entirely, any time — if it's finished on the live checklist it
-   stays there regardless; see "Sending vs. updating" below.
+   toggle every item in it at once. Tap **Change** to rename it in place
+   (fixes a typo everywhere it's ever appeared, archive included — see
+   `rename_library_item` in [`app/db.py`](app/db.py)). Tap the **×** to
+   delete an item from the library entirely, any time — if it's finished on
+   the live checklist it stays there regardless; see "Sending vs. updating"
+   below.
 5. The heading (e.g. "Today: 03/09/2026") is clickable — tap it to switch
    to **Tomorrow** and back. Whichever is showing is what **Send now**
    applies to.

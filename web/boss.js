@@ -167,6 +167,17 @@ function renderItem(item) {
   body.appendChild(text);
   row.appendChild(body);
 
+  const renameBtn = document.createElement("button");
+  renameBtn.type = "button";
+  renameBtn.className = "rename-btn";
+  renameBtn.textContent = "Change";
+  renameBtn.setAttribute("aria-label", "Change task name");
+  renameBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    renameItem(item.id, item.text);
+  });
+  row.appendChild(renameBtn);
+
   const removeBtn = document.createElement("button");
   removeBtn.type = "button";
   removeBtn.className = "media-icon";
@@ -308,6 +319,35 @@ async function removeItem(itemId) {
     applyBossState(data, false);
   } catch (err) {
     showBanner("Network error removing the item.");
+  } finally {
+    busy = false;
+  }
+}
+
+async function renameItem(itemId, currentText) {
+  if (busy) return;
+  const text = window.prompt("Change task name:", currentText);
+  if (text === null) return;
+  const trimmed = text.trim();
+  if (!trimmed || trimmed === currentText) return;
+
+  busy = true;
+  try {
+    const res = await fetch("/api/boss/library/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ init_data: initData, item_id: itemId, text: trimmed }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      showBanner(body.detail || "Could not rename that item.");
+      return;
+    }
+    const data = await res.json();
+    hideBanner();
+    applyBossState(data, false);
+  } catch (err) {
+    showBanner("Network error renaming the item.");
   } finally {
     busy = false;
   }

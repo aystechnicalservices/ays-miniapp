@@ -131,3 +131,71 @@ async def notify_all_done(bot, date_str: str) -> None:
             await bot.send_message(boss_id, text)
         except Exception:
             log.exception("Failed to notify boss id %s", boss_id)
+
+
+def _fmt_done_at(done_at) -> str:
+    if not done_at:
+        return ""
+    try:
+        dt = datetime.fromisoformat(done_at).astimezone(ZoneInfo(config.TIMEZONE))
+    except ValueError:
+        return ""
+    return dt.strftime("%H:%M")
+
+
+def _build_report_text(date_str: str, items: list, total: int, done: int) -> str:
+    lines = [f"Daily Report — {date_str}"]
+    by_villa: dict[str, list] = {}
+    for item in items:
+        by_villa.setdefault(item["villa"], []).append(item)
+
+    for villa, villa_items in by_villa.items():
+        by_section: dict[str, list] = {}
+        for item in villa_items:
+            by_section.setdefault(item["section"], []).append(item)
+        for section, section_items in by_section.items():
+            lines.append(f"{villa} — {section}")
+            for item in section_items:
+                if item["done"]:
+                    time_str = _fmt_done_at(item["done_at"])
+                    who = item["done_by"] or "someone"
+                    lines.append(f"  ✓ {item['text']} — {who}{f' at {time_str}' if time_str else ''}")
+                else:
+                    lines.append(f"  ✗ {item['text']} — not done")
+
+    lines.append("")
+    lines.append(f"Total: {done}/{total} finished")
+    return "\n".join(lines)
+
+
+async def post_report(bot, date_str: str, items: list, total: int, done: int) -> bool:
+    """Posts the structured daily report, then the finished items' photos/
+    videos (re-sent by their stored file_id — no re-upload needed), to
+    REPORTS_CHAT_ID. Purely deterministic: it only formats and forwards
+    what it's given. Returns False (and no-ops) if REPORTS_CHAT_ID isn't
+    configured yet, so this never breaks the app before the channel
+    exists."""
+    if not config.REPORTS_CHAT_ID:
+        log.warning("REPORTS_CHAT_ID not set — skipping report for %s", date_str)
+        return False
+
+    text = _build_report_text(date_str, items, total, done)
+    try:
+        await bot.send_message(config.REPORTS_CHAT_ID, text)
+    except Exception:
+        log.exception("Failed to post report text for %s", date_str)
+        return False
+
+    for item in items:
+        if not item["done"] or not item.get("media_file_id"):
+            continue
+        caption = f"{item['villa']} — {item['section']}: {item['text']}"
+        try:
+            if item["media_type"] == "video":
+                await bot.send_video(config.REPORTS_CHAT_ID, item["media_file_id"], caption=caption)
+            else:
+                await bot.send_photo(config.REPORTS_CHAT_ID, item["media_file_id"], caption=caption)
+        except Exception:
+            log.exception("Failed to forward report media for item %s", item.get("id"))
+
+    return True

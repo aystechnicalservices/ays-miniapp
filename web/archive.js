@@ -123,14 +123,40 @@ async function togglePlanDetail(plan, detailEl) {
       return;
     }
     const data = await res.json();
-    renderHistoryItems(data.items, detailEl);
+    renderHistoryItems(data.items, detailEl, plan.id);
   } catch (err) {
     detailEl.innerHTML = "";
     showBanner("Network error loading that plan.");
   }
 }
 
-function renderHistoryItems(items, container) {
+async function postReport(planId, btn) {
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = "Posting...";
+  try {
+    const res = await fetch("/api/boss/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ init_data: initData, plan_id: planId }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      showBanner(body.detail || "Could not post the report.");
+      btn.disabled = false;
+      btn.textContent = originalText;
+      return;
+    }
+    hideBanner();
+    btn.textContent = "Posted ✓";
+  } catch (err) {
+    showBanner("Network error posting the report.");
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+function renderHistoryItems(items, container, planId) {
   const villas = [];
   const byVilla = new Map();
   for (const item of items) {
@@ -142,6 +168,14 @@ function renderHistoryItems(items, container) {
   }
 
   container.innerHTML = "";
+
+  const reportBtn = document.createElement("button");
+  reportBtn.type = "button";
+  reportBtn.className = "post-report-btn";
+  reportBtn.textContent = "Post report to Reports channel";
+  reportBtn.addEventListener("click", () => postReport(planId, reportBtn));
+  container.appendChild(reportBtn);
+
   for (const villa of villas) {
     const villaEl = document.createElement("div");
     villaEl.className = "villa";

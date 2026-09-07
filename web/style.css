@@ -193,6 +193,39 @@ h1 {
   cursor: pointer;
 }
 
+.post-report-btn {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: none;
+  background: var(--button);
+  color: var(--button-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.post-report-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.rename-btn {
+  flex: none;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--link);
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 1px;
+  cursor: pointer;
+}
+
 #camera-view {
   position: fixed;
   inset: 0;

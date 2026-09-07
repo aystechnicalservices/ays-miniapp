@@ -276,7 +276,10 @@ async def api_attach(
     plan_date = db.get_plan_date(plan_id)
     date_str = _fmt_iso_date(plan_date) if plan_date else None
     if all_done:
-        await bot_module.notify_all_done(bot, date_str or datetime.now(_tz()).strftime("%d/%m/%Y"))
+        final_date_str = date_str or datetime.now(_tz()).strftime("%d/%m/%Y")
+        await bot_module.notify_all_done(bot, final_date_str)
+        done_count = sum(1 for i in items if i["done"])
+        await bot_module.post_report(bot, final_date_str, items, len(items), done_count)
     return {
         "items": items,
         "all_done": all_done,
@@ -345,6 +348,12 @@ class AddItemRequest(BaseModel):
 class RemoveItemRequest(BaseModel):
     init_data: str
     item_id: int
+
+
+class RenameItemRequest(BaseModel):
+    init_data: str
+    item_id: int
+    text: str
 
 
 class SendPlanRequest(BaseModel):
@@ -421,6 +430,18 @@ async def api_boss_library_remove(req: RemoveItemRequest, request: Request):
     return _boss_state(request.app)
 
 
+@app.post("/api/boss/library/rename")
+async def api_boss_library_rename(req: RenameItemRequest, request: Request):
+    _authenticate_boss(req.init_data)
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Item text can't be empty")
+    ok, error = db.rename_library_item(req.item_id, text)
+    if not ok:
+        raise HTTPException(status_code=400, detail=error)
+    return _boss_state(request.app)
+
+
 @app.post("/api/boss/send-plan")
 async def api_boss_send_plan(req: SendPlanRequest, request: Request):
     # Empty item_ids is valid: on an update it means "clear every unfinished
@@ -454,3 +475,26 @@ async def api_boss_history_plan(req: HistoryPlanRequest):
     _authenticate_boss(req.init_data)
     items = db.get_plan_items(req.plan_id)
     return {"items": items}
+
+
+@app.post("/api/boss/report")
+async def api_boss_report(req: HistoryPlanRequest, request: Request):
+    """Manually posts the report for any plan, finished or not — for a day
+    that ended partial, or to re-post one. Unlike the automatic all-done
+    trigger, a missing REPORTS_CHAT_ID is surfaced as an error here, since
+    the boss actively asked for this to happen."""
+    _authenticate_boss(req.init_data)
+    items = db.get_plan_items(req.plan_id)
+    if not items:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    plan_date = db.get_plan_date(req.plan_id)
+    date_str = _fmt_iso_date(plan_date) if plan_date else "—"
+    done_count = sum(1 for i in items if i["done"])
+    bot = request.app.state.bot_application.bot
+    posted = await bot_module.post_report(bot, date_str, items, len(items), done_count)
+    if not posted:
+        raise HTTPException(
+            status_code=400,
+            detail="REPORTS_CHAT_ID isn't set up yet — add it to .env first.",
+        )
+    return {"posted": True}

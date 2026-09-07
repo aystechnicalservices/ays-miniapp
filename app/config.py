@@ -8,6 +8,9 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 BOSS_ID = int(os.environ.get("BOSS_ID", "0") or "0")  # primary boss — has library access
 STORAGE_CHAT_ID = int(os.environ.get("STORAGE_CHAT_ID", "0") or "0")  # media relays here
+# Optional — the daily report (Feature 1) just no-ops with a log warning
+# until this is set, so it's safe to deploy before the channel exists.
+REPORTS_CHAT_ID = int(os.environ.get("REPORTS_CHAT_ID", "0") or "0")
 EXTRA_BOSS_IDS = {
     int(x) for x in os.environ.get("EXTRA_BOSS_IDS", "").split(",") if x.strip()
 }

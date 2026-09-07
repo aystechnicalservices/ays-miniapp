@@ -375,7 +375,8 @@ def get_plan_items(plan_id: int):
             """
             SELECT plan_items.id, library_items.villa, library_items.section,
                    library_items.text, plan_items.sort_order, item_state.done,
-                   item_state.user_name, item_state.done_at, item_state.media_type
+                   item_state.user_name, item_state.done_at, item_state.media_type,
+                   item_state.media_file_id
             FROM plan_items
             JOIN library_items ON library_items.id = plan_items.library_item_id
             JOIN item_state ON item_state.item_id = plan_items.id
@@ -395,6 +396,7 @@ def get_plan_items(plan_id: int):
             "done_by": r["user_name"],
             "done_at": r["done_at"],
             "media_type": r["media_type"],
+            "media_file_id": r["media_file_id"],
         }
         for r in rows
     ]
@@ -491,6 +493,18 @@ def add_library_item(villa: str, section: str, text: str) -> int:
             (villa, section, text, next_order, _now()),
         )
         return cur.lastrowid
+
+
+def rename_library_item(item_id: int, text: str) -> tuple[bool, str]:
+    """Changes a library item's text in place. Since plan_items joins
+    library_items by id rather than copying its text, this also changes
+    how the item reads on any plan that ever used it, past or present —
+    fixing a typo shouldn't leave it wrong forever in the archive."""
+    with get_conn() as conn:
+        cur = conn.execute("UPDATE library_items SET text = ? WHERE id = ?", (text, item_id))
+        if cur.rowcount == 0:
+            return False, "Item not found."
+        return True, ""
 
 
 def remove_library_item(item_id: int) -> tuple[bool, str]:
