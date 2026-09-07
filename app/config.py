@@ -11,6 +11,9 @@ STORAGE_CHAT_ID = int(os.environ.get("STORAGE_CHAT_ID", "0") or "0")  # media re
 # Optional — the daily report (Feature 1) just no-ops with a log warning
 # until this is set, so it's safe to deploy before the channel exists.
 REPORTS_CHAT_ID = int(os.environ.get("REPORTS_CHAT_ID", "0") or "0")
+# Optional — server-side only, never sent to the frontend. AI features
+# (see app/gemini.py) just fall back to plain non-AI behavior until set.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 EXTRA_BOSS_IDS = {
     int(x) for x in os.environ.get("EXTRA_BOSS_IDS", "").split(",") if x.strip()
 }
