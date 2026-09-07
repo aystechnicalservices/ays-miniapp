@@ -9,6 +9,8 @@ const listEl = document.getElementById("list");
 const progressEl = document.getElementById("progress");
 const bannerEl = document.getElementById("banner");
 const toastEl = document.getElementById("toast");
+const aiAddForm = document.getElementById("ai-add-form");
+const aiAddTextEl = document.getElementById("ai-add-text");
 const addForm = document.getElementById("add-form");
 const addTextEl = document.getElementById("add-text");
 const addVillaEl = document.getElementById("add-villa");
@@ -264,6 +266,50 @@ async function loadLibrary(resetSelection) {
     showBanner("Network error loading the library.");
   }
 }
+
+aiAddForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (busy) return;
+  const text = aiAddTextEl.value.trim();
+  if (!text) return;
+
+  const submitBtn = aiAddForm.querySelector("button");
+  const originalLabel = submitBtn.textContent;
+  busy = true;
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Thinking...";
+  try {
+    const res = await fetch("/api/boss/library/ai-add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ init_data: initData, text }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      showBanner(body.detail || "Could not add that item.");
+      return;
+    }
+    const data = await res.json();
+    hideBanner();
+    applyBossState(data, false);
+    selectedIds.add(data.selected_id);
+    render(latestLibrary);
+    aiAddTextEl.value = "";
+    if (!data.ai_used) {
+      showToast("Added as typed — AI wasn't available");
+    } else if (data.was_new) {
+      showToast("✅ Added a new item");
+    } else {
+      showToast("✅ Matched an existing item");
+    }
+  } catch (err) {
+    showBanner("Network error adding the item.");
+  } finally {
+    busy = false;
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
+});
 
 addForm.addEventListener("submit", async (e) => {
   e.preventDefault();

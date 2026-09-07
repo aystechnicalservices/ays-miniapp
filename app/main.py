@@ -15,7 +15,7 @@ from telegram import InputFile
 from telegram.error import TelegramError, TimedOut
 
 from . import bot as bot_module
-from . import config, db
+from . import config, db, gemini
 from .security import verify_init_data
 
 logging.basicConfig(level=logging.INFO)
@@ -345,6 +345,11 @@ class AddItemRequest(BaseModel):
     text: str
 
 
+class AiAddItemRequest(BaseModel):
+    init_data: str
+    text: str
+
+
 class RemoveItemRequest(BaseModel):
     init_data: str
     item_id: int
@@ -419,6 +424,39 @@ async def api_boss_library_add(req: AddItemRequest, request: Request):
         raise HTTPException(status_code=400, detail="Item text can't be empty")
     new_id = db.add_library_item(villa, section, text)
     return {**_boss_state(request.app), "added_id": new_id}
+
+
+@app.post("/api/boss/library/ai-add")
+async def api_boss_library_ai_add(req: AiAddItemRequest, request: Request):
+    """Boss types free text; Gemini either matches it to an existing item
+    (reused, not duplicated) or drafts a new one in the library's style.
+    Always succeeds — on any AI failure this just adds the raw text as-is,
+    identical to what the plain Add button already does."""
+    _authenticate_boss(req.init_data)
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Describe the task first")
+
+    library = db.list_library()
+    match_id, new_item, ai_used = await gemini.match_or_draft_item(text, library)
+
+    if match_id is not None:
+        selected_id = match_id
+        was_new = False
+    elif new_item is not None:
+        villa, section, item_text = new_item
+        selected_id = db.add_library_item(villa, section, item_text)
+        was_new = True
+    else:
+        selected_id = db.add_library_item(db.DEFAULT_VILLA, "General", text)
+        was_new = True
+
+    return {
+        **_boss_state(request.app),
+        "selected_id": selected_id,
+        "was_new": was_new,
+        "ai_used": ai_used,
+    }
 
 
 @app.post("/api/boss/library/remove")

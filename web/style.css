@@ -363,6 +363,7 @@ h1 {
   text-align: center;
 }
 
+#ai-add-form,
 #add-form {
   display: flex;
   flex-wrap: wrap;
@@ -370,6 +371,7 @@ h1 {
   margin-bottom: 18px;
 }
 
+#ai-add-form input[type="text"],
 #add-form input[type="text"] {
   flex: 1 1 140px;
   padding: 10px 12px;
@@ -380,6 +382,7 @@ h1 {
   font-size: 14px;
 }
 
+#ai-add-form button,
 #add-form button {
   flex: none;
   padding: 10px 14px;
@@ -389,6 +392,11 @@ h1 {
   color: var(--button-text);
   font-size: 14px;
   cursor: pointer;
+}
+
+#ai-add-form button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 #toast {

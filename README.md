@@ -174,6 +174,45 @@ automatic trigger just logs a warning and skips silently — never breaks the
 all-done flow — while the manual button surfaces a clear error telling you
 it isn't configured yet.
 
+## AI features (optional)
+
+Set `GEMINI_API_KEY` (a free key from [Google AI Studio](https://aistudio.google.com))
+to turn on AI-assisted features. Every one of them is a single stateless
+call — [`app/gemini.py`](app/gemini.py)'s `ask_gemini(prompt)` sends a
+prompt string, gets a text string back or `None` on any failure at all
+(missing key, network error, bad response). No agent, no tools, no loop —
+callers parse whatever JSON they asked for and hand it to the same
+deterministic code paths that already exist. The AI never marks anything
+done and never sends a plan; it only ever proposes text/ids for a human (or
+existing code) to act on. Without a key, every AI feature falls back to its
+plain non-AI behavior — nothing requires it.
+
+Calls the REST API directly over `httpx` rather than the official
+`google-genai` SDK, which hard-requires `pydantic>=2.12.5` — a straight
+conflict with this app's `pydantic==1.10.26` pin (itself required because
+`pydantic-core`'s Rust build doesn't compile under Termux; see the
+requirements.txt history). Pinned to a specific model
+(`gemini-3.6-flash` as of writing) rather than the `gemini-flash-latest`
+alias, which routes to a preview/experimental backend that 503'd under
+normal load in testing — if Google deprecates the pinned version, the API
+itself says so (a 404 naming the replacement), which is the same way
+`gemini-2.0-flash`/`gemini-2.5-flash` were found deprecated when this was
+built.
+
+**Add with AI**, on the library page: type a task in plain language (e.g.
+"waterproof the 908 roof") and tap **Add with AI** instead of filling in
+Villa/Section manually. Gemini gets the *entire* current library plus that
+text, and either matches it to an existing item (reused, never duplicated)
+or drafts a new one in the library's own terse imperative style, spelling
+corrected — "Waterproif paint roof Yadvinder, 2 hiurs" becomes "Waterproof
+paint the roof (Yadvinder, 2 hours)." A matched or newly-created item is
+auto-selected into the plan you're assembling, same as a manual **Add**.
+If Gemini is down, unreachable, or returns something unparseable (or
+names a library id that doesn't actually exist — never trusted blindly),
+this silently falls back to adding the typed text as-is, identical to the
+plain **Add** button. The manual Villa/Section form stays alongside it for
+when precise control matters more than speed.
+
 ## How the media loop works
 
 Tapping an unfinished item opens the camera. **How** depends on the
