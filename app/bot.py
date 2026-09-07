@@ -28,7 +28,15 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("menu", start_handler))
     application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, stray_media_handler))
+    application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, _log_channel_post))
     return application
+
+
+async def _log_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Temporary — used to discover a new channel's chat_id for .env. Safe
+    to leave in; it's a no-op besides the log line."""
+    chat = update.channel_post.chat
+    log.info("CHANNEL POST seen — chat_id=%s title=%r", chat.id, chat.title)
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
