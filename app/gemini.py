@@ -46,7 +46,15 @@ async def ask_gemini(prompt: str):
             resp = await client.post(
                 _ENDPOINT.format(model=_MODEL),
                 params={"key": config.GEMINI_API_KEY},
-                json={"contents": [{"role": "user", "parts": [{"text": prompt}]}]},
+                json={
+                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                    # Every caller here is a classification/extraction task
+                    # (match-or-draft, report facts, etc.), not creative
+                    # writing — low temperature makes the same kind of input
+                    # give the same judgment call consistently, rather than
+                    # varying between calls near a decision boundary.
+                    "generationConfig": {"temperature": 0.1},
+                },
             )
             resp.raise_for_status()
             data = resp.json()
