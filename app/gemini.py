@@ -88,10 +88,12 @@ def _build_match_prompt(text: str, library: list) -> str:
         "Match an existing item if its meaning is the same as the boss's text, even "
         "if worded differently — reuse it, do not create a near-duplicate. Only "
         "create a new item if nothing in the library fits. New item text must be "
-        "short and imperative, matching the terse style of the existing items "
-        '(e.g. "Trim the bonsai garden.", "Check for water leaks."). Correct any '
-        "obvious spelling/grammar mistakes in the new text while keeping its "
-        "meaning and any names intact.\n\n"
+        "short, generic and imperative, matching the terse style of the existing "
+        'items (e.g. "Trim the bonsai garden.", "Check for water leaks."). It must '
+        "describe only the reusable task itself — strip out who's doing it, how "
+        "long it'll take, or any other one-off assignment detail from the boss's "
+        "text, since those change per occurrence and don't belong in a reusable "
+        "library item. Correct any obvious spelling/grammar mistakes.\n\n"
         "Return ONLY JSON, no prose, no markdown fences, in exactly this shape:\n"
         '{"match_id": <existing item id, or null>, "new": '
         '{"villa": "...", "section": "...", "text": "..."} or null}\n'
