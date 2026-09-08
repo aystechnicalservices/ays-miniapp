@@ -350,6 +350,11 @@ class AiAddItemRequest(BaseModel):
     text: str
 
 
+class DraftPlanRequest(BaseModel):
+    init_data: str
+    text: str
+
+
 class RemoveItemRequest(BaseModel):
     init_data: str
     item_id: int
@@ -456,6 +461,32 @@ async def api_boss_library_ai_add(req: AiAddItemRequest, request: Request):
         **_boss_state(request.app),
         "selected_id": selected_id,
         "was_new": was_new,
+        "ai_used": ai_used,
+    }
+
+
+@app.post("/api/boss/library/ai-draft")
+async def api_boss_library_ai_draft(req: DraftPlanRequest, request: Request):
+    """Boss describes a whole day in free text; Gemini drafts which
+    existing items match and which need creating, and both get returned
+    for the boss to review — nothing is selected into a plan and nothing
+    sends here. On any AI failure this returns an empty draft (no ids, no
+    new items) rather than guessing; the boss just composes manually,
+    exactly like today."""
+    _authenticate_boss(req.init_data)
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Describe the plan first")
+
+    library = db.list_library()
+    selected_ids, new_items, ai_used = await gemini.draft_plan(text, library)
+
+    new_ids = [db.add_library_item(villa, section, item_text) for villa, section, item_text in new_items]
+
+    return {
+        **_boss_state(request.app),
+        "draft_ids": selected_ids + new_ids,
+        "new_ids": new_ids,
         "ai_used": ai_used,
     }
 

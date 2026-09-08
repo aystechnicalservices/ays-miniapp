@@ -370,6 +370,7 @@ h1 {
   text-align: center;
 }
 
+#ai-draft-form,
 #ai-add-form,
 #add-form {
   display: flex;
@@ -378,6 +379,7 @@ h1 {
   margin-bottom: 18px;
 }
 
+#ai-draft-form textarea,
 #ai-add-form input[type="text"],
 #add-form input[type="text"] {
   flex: 1 1 140px;
@@ -387,8 +389,11 @@ h1 {
   background: var(--section-bg);
   color: var(--text);
   font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
 }
 
+#ai-draft-form button,
 #ai-add-form button,
 #add-form button {
   flex: none;
@@ -401,6 +406,7 @@ h1 {
   cursor: pointer;
 }
 
+#ai-draft-form button:disabled,
 #ai-add-form button:disabled {
   opacity: 0.6;
   cursor: default;

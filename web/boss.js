@@ -9,6 +9,8 @@ const listEl = document.getElementById("list");
 const progressEl = document.getElementById("progress");
 const bannerEl = document.getElementById("banner");
 const toastEl = document.getElementById("toast");
+const aiDraftForm = document.getElementById("ai-draft-form");
+const aiDraftTextEl = document.getElementById("ai-draft-text");
 const aiAddForm = document.getElementById("ai-add-form");
 const aiAddTextEl = document.getElementById("ai-add-text");
 const addForm = document.getElementById("add-form");
@@ -306,6 +308,55 @@ async function loadLibrary(resetSelection) {
     showBanner("Network error loading the library.");
   }
 }
+
+aiDraftForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (busy) return;
+  const text = aiDraftTextEl.value.trim();
+  if (!text) return;
+
+  const submitBtn = aiDraftForm.querySelector("button");
+  const originalLabel = submitBtn.textContent;
+  busy = true;
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Thinking... (up to 1 min)";
+  try {
+    const res = await fetch("/api/boss/library/ai-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ init_data: initData, text }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      showBanner(body.detail || "Could not draft a plan.");
+      return;
+    }
+    const data = await res.json();
+    hideBanner();
+    applyBossState(data, false);
+    // Adds to whatever's already selected rather than replacing it, so
+    // this never silently discards items the boss picked by hand first.
+    for (const id of data.draft_ids) selectedIds.add(id);
+    render(latestLibrary);
+    aiDraftTextEl.value = "";
+    if (!data.ai_used) {
+      showToast("AI wasn't available — compose the plan manually");
+    } else {
+      const total = data.draft_ids.length;
+      const newCount = data.new_ids.length;
+      showToast(
+        `✅ Drafted ${total} item${total === 1 ? "" : "s"}` +
+          `${newCount ? ` (${newCount} new)` : ""} — review before sending`
+      );
+    }
+  } catch (err) {
+    showBanner("Network error drafting the plan.");
+  } finally {
+    busy = false;
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
+});
 
 aiAddForm.addEventListener("submit", async (e) => {
   e.preventDefault();

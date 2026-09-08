@@ -230,6 +230,23 @@ fails, the plain version posts instead; the report always goes out either
 way, only its wording depends on AI. Photos/videos are attached the same
 regardless.
 
+**Draft plan with AI**, above the single-item AI add: describe a whole
+day in free text (e.g. "908: pool + entrance clean; 1002: soil removal;
+new: waterproof 908 roof") and Gemini matches every part of it against
+the library — existing items get selected, anything not covered gets
+drafted new (same generic, no-baked-in-details style as single-item add).
+Everything it picks is **added** to whatever's already selected, never
+replacing it, so a manual selection in progress is never silently
+discarded. It only pre-selects — nothing is created as a *plan* and
+nothing sends; the boss still reviews the ticked items (new ones show up
+in the library like any other), edits freely, then taps the same **Send
+now**. Any date/scheduling words in the description ("today", "tomorrow")
+are ignored by the prompt on purpose — which day this is for is still
+whatever the Today/Tomorrow toggle above it says, decided before
+drafting, not parsed from the free text. If Gemini fails, this returns an
+empty draft and the boss just composes the plan by hand, same as if the
+feature didn't exist.
+
 ## How the media loop works
 
 Tapping an unfinished item opens the camera. **How** depends on the
