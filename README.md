@@ -197,21 +197,38 @@ alias, which routes to a preview/experimental backend that 503'd under
 normal load in testing — if Google deprecates the pinned version, the API
 itself says so (a 404 naming the replacement), which is the same way
 `gemini-2.0-flash`/`gemini-2.5-flash` were found deprecated when this was
-built.
+built. `temperature: 0.1` on every call — these are classification/
+extraction judgment calls, not creative writing, and a higher default
+temperature measurably made the same kind of borderline match inconsistent
+between calls in testing. A 90s timeout, not the usual few seconds: this
+model reasons internally before answering, and a genuinely ambiguous call
+measured 46.8s — a shorter timeout was cutting those off and forcing an
+unnecessary fallback.
 
 **Add with AI**, on the library page: type a task in plain language (e.g.
 "waterproof the 908 roof") and tap **Add with AI** instead of filling in
 Villa/Section manually. Gemini gets the *entire* current library plus that
 text, and either matches it to an existing item (reused, never duplicated)
 or drafts a new one in the library's own terse imperative style, spelling
-corrected — "Waterproif paint roof Yadvinder, 2 hiurs" becomes "Waterproof
-paint the roof (Yadvinder, 2 hours)." A matched or newly-created item is
-auto-selected into the plan you're assembling, same as a manual **Add**.
-If Gemini is down, unreachable, or returns something unparseable (or
-names a library id that doesn't actually exist — never trusted blindly),
-this silently falls back to adding the typed text as-is, identical to the
-plain **Add** button. The manual Villa/Section form stays alongside it for
-when precise control matters more than speed.
+corrected and stripped of one-off details — "Waterproif paint roof
+Yadvinder, 2 hiurs" becomes "Apply waterproof paint to the roof." (no name
+or duration; those belong on a per-send **Note** instead, see "Sending a
+plan" above, not baked into the reusable item). A matched or newly-created
+item is auto-selected into the plan you're assembling, same as a manual
+**Add**. If Gemini is down, unreachable, or returns something unparseable
+(or names a library id that doesn't actually exist — never trusted
+blindly), this silently falls back to adding the typed text as-is,
+identical to the plain **Add** button. The manual Villa/Section form stays
+alongside it for when precise control matters more than speed.
+
+**Report prose**, layered onto the daily report (see "Daily reports"
+above): the plain, deterministic report text is handed to Gemini with
+"reword this as short professional prose, don't invent or add anything not
+in the data" — the facts always come from the DB via `_build_report_text`,
+never from the model, which only rewords. If Gemini is unavailable or
+fails, the plain version posts instead; the report always goes out either
+way, only its wording depends on AI. Photos/videos are attached the same
+regardless.
 
 ## How the media loop works
 

@@ -140,3 +140,21 @@ async def match_or_draft_item(text: str, library: list):
     except (ValueError, KeyError, TypeError, json.JSONDecodeError):
         log.exception("Could not parse Gemini match/draft response: %r", response)
         return None, None, False
+
+
+async def write_report_prose(plain_text: str):
+    """Rewords an already-assembled plain-text daily report (see
+    bot._build_report_text) into short, professional prose — wording only.
+    Returns None on any failure, so the caller always has plain_text itself
+    to send instead; the report never depends on this succeeding, and the
+    facts in it never come from here."""
+    prompt = (
+        "Rewrite the following structured daily work report as a short, "
+        "professional report in plain, clear English prose (a few short "
+        "paragraphs). Do not invent, assume, or add anything that isn't in "
+        "the data below — reword only what's given, keep every fact "
+        "(names, times, counts). Clearly mention any task marked as not "
+        "done.\n\n"
+        f"{plain_text}"
+    )
+    return await ask_gemini(prompt)

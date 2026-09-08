@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from . import config, db
+from . import config, db, gemini
 
 log = logging.getLogger("ays.bot")
 
@@ -169,17 +169,24 @@ def _build_report_text(date_str: str, items: list, total: int, done: int) -> str
 
 
 async def post_report(bot, date_str: str, items: list, total: int, done: int) -> bool:
-    """Posts the structured daily report, then the finished items' photos/
-    videos (re-sent by their stored file_id — no re-upload needed), to
-    REPORTS_CHAT_ID. Purely deterministic: it only formats and forwards
-    what it's given. Returns False (and no-ops) if REPORTS_CHAT_ID isn't
+    """Posts the daily report, then the finished items' photos/videos
+    (re-sent by their stored file_id — no re-upload needed), to
+    REPORTS_CHAT_ID. Returns False (and no-ops) if REPORTS_CHAT_ID isn't
     configured yet, so this never breaks the app before the channel
-    exists."""
+    exists.
+
+    The facts always come from _build_report_text — plain, deterministic,
+    assembled from the DB. Gemini only gets a chance to reword that into
+    prose; if it's unavailable or fails, the plain version goes out
+    instead. Either way the report always sends — AI only affects how it
+    reads, never whether it goes out or what it says happened."""
     if not config.REPORTS_CHAT_ID:
         log.warning("REPORTS_CHAT_ID not set — skipping report for %s", date_str)
         return False
 
-    text = _build_report_text(date_str, items, total, done)
+    plain_text = _build_report_text(date_str, items, total, done)
+    prose = await gemini.write_report_prose(plain_text)
+    text = prose if prose else plain_text
     try:
         await bot.send_message(config.REPORTS_CHAT_ID, text)
     except Exception:
