@@ -4,7 +4,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -364,6 +364,7 @@ class RenameItemRequest(BaseModel):
 class SendPlanRequest(BaseModel):
     init_data: str
     item_ids: List[int]
+    notes: Dict[str, str] = {}  # library_item_id (as string) -> per-send note
     target: str = "today"  # "today" | "tomorrow" — which date this plan is for
 
 
@@ -379,12 +380,12 @@ def _boss_state(app: FastAPI):
         "tomorrow_date": _fmt_iso_date(tomorrow_iso),
         "today_plan_id": today_plan_id,
         "tomorrow_plan_id": tomorrow_plan_id,
-        "today_active_ids": db.get_plan_library_item_ids(today_plan_id),
-        "tomorrow_active_ids": db.get_plan_library_item_ids(tomorrow_plan_id),
+        "today_active_items": db.get_plan_selection(today_plan_id),
+        "tomorrow_active_items": db.get_plan_selection(tomorrow_plan_id),
     }
 
 
-async def _fire_plan(app: FastAPI, item_ids: List[int], target: str) -> bool:
+async def _fire_plan(app: FastAPI, item_ids: List[int], notes: dict, target: str) -> bool:
     """Sends or updates the plan for `target` ("today"/"tomorrow"). Returns
     True if this started a fresh generation (and notified everyone), False
     if it just updated the plan already live for that date in place (no
@@ -398,9 +399,9 @@ async def _fire_plan(app: FastAPI, item_ids: List[int], target: str) -> bool:
     target_iso = _tomorrow_iso(tz) if target == "tomorrow" else _today_iso(tz)
     existing_plan_id = db.get_plan_id_for_date(target_iso)
     if existing_plan_id is not None:
-        db.update_plan(existing_plan_id, item_ids)
+        db.update_plan(existing_plan_id, item_ids, notes)
         return False
-    plan_id = db.send_plan(item_ids, target_iso)
+    plan_id = db.send_plan(item_ids, target_iso, notes)
     date_str = _fmt_iso_date(target_iso)
     bot = app.state.bot_application.bot
     await bot_module.notify_crew(bot, date_str, plan_id)
@@ -488,7 +489,15 @@ async def api_boss_send_plan(req: SendPlanRequest, request: Request):
     # unusual choice but the boss's to make.
     _authenticate_boss(req.init_data)
     target = req.target if req.target in ("today", "tomorrow") else "today"
-    is_fresh = await _fire_plan(request.app, req.item_ids, target)
+    notes = {}
+    for key, note in req.notes.items():
+        note = note.strip()
+        if note:
+            try:
+                notes[int(key)] = note
+            except ValueError:
+                continue
+    is_fresh = await _fire_plan(request.app, req.item_ids, notes, target)
     return {**_boss_state(request.app), "target": target, "is_fresh": is_fresh}
 
 

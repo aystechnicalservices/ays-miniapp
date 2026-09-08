@@ -12,13 +12,16 @@ Model:
   labeled for — "today" or "tomorrow" at send time — independent of
   sent_at, since a boss can send tomorrow's plan tonight).
 - plan_items: a generation's assembled checklist — references library_items
-  by id, tagged with the plan generation (plan_id) it belongs to. Sending a
-  new plan does NOT delete old plan_items/item_state: those stay in the
-  database as the archive for past days. Every plan dated today or later
-  (plan_date >= today) stays fully live and editable by its own plan_id —
-  not just the most recent row — since a boss sending tomorrow's plan
-  shouldn't make today's stop working. Anything dated before today is
-  archive: read-only, addressed only by plan_id from the Archive page.
+  by id, tagged with the plan generation (plan_id) it belongs to, plus an
+  optional per-occurrence `note` (e.g. "assigned to Yadvinder, budget 2
+  hours") that's specific to this one send and never touches the reusable
+  library_items.text. Sending a new plan does NOT delete old
+  plan_items/item_state: those stay in the database as the archive for
+  past days. Every plan dated today or later (plan_date >= today) stays
+  fully live and editable by its own plan_id — not just the most recent
+  row — since a boss sending tomorrow's plan shouldn't make today's stop
+  working. Anything dated before today is archive: read-only, addressed
+  only by plan_id from the Archive page.
 - item_state: tick/done state per plan_item (1 row per plan_item, keyed by
   its id — never reused across generations, so history stays intact).
 """
@@ -185,10 +188,13 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 plan_id INTEGER NOT NULL REFERENCES plans(id),
                 library_item_id INTEGER NOT NULL REFERENCES library_items(id),
-                sort_order INTEGER NOT NULL
+                sort_order INTEGER NOT NULL,
+                note TEXT
             )
             """
         )
+        if not _has_column(conn, "plan_items", "note"):
+            conn.execute("ALTER TABLE plan_items ADD COLUMN note TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS item_state (
@@ -214,15 +220,15 @@ def init_db() -> None:
                 )
 
 
-def _replace_plan(conn, library_item_ids: list[int], plan_date: str) -> int:
+def _replace_plan(conn, library_item_ids: list[int], plan_date: str, notes: dict) -> int:
     cur = conn.execute(
         "INSERT INTO plans (sent_at, plan_date) VALUES (?, ?)", (_now(), plan_date)
     )
     plan_id = cur.lastrowid
     for i, library_item_id in enumerate(library_item_ids):
         item_cur = conn.execute(
-            "INSERT INTO plan_items (plan_id, library_item_id, sort_order) VALUES (?, ?, ?)",
-            (plan_id, library_item_id, i),
+            "INSERT INTO plan_items (plan_id, library_item_id, sort_order, note) VALUES (?, ?, ?, ?)",
+            (plan_id, library_item_id, i, notes.get(library_item_id)),
         )
         conn.execute(
             "INSERT INTO item_state (item_id, done) VALUES (?, 0)",
@@ -231,15 +237,18 @@ def _replace_plan(conn, library_item_ids: list[int], plan_date: str) -> int:
     return plan_id
 
 
-def send_plan(library_item_ids: list[int], plan_date: str) -> int:
+def send_plan(library_item_ids: list[int], plan_date: str, notes: dict = None) -> int:
     """Starts a fresh plan generation labeled for plan_date (an ISO
     YYYY-MM-DD string — "today" or "tomorrow" at the time this is called).
-    Returns the new plan's id."""
+    notes is an optional {library_item_id: note} map for a per-occurrence
+    instruction on specific items (e.g. "assigned to Yadvinder, budget 2
+    hours") — never touches the reusable library_items.text. Returns the
+    new plan's id."""
     with get_conn() as conn:
-        return _replace_plan(conn, library_item_ids, plan_date)
+        return _replace_plan(conn, library_item_ids, plan_date, notes or {})
 
 
-def update_plan(plan_id: int, library_item_ids: list[int]) -> None:
+def update_plan(plan_id: int, library_item_ids: list[int], notes: dict = None) -> None:
     """Applies a new selection to plan_id in place — used when the boss
     re-sends targeting a date that already has a plan (today's or
     tomorrow's), so a tweak doesn't wipe the crew's progress. A finished
@@ -247,9 +256,13 @@ def update_plan(plan_id: int, library_item_ids: list[int]) -> None:
     its tick, photo and timestamp forever, even if deselected or deleted
     from the library entirely. An unfinished item not in the new selection
     is dropped outright. Anything newly selected that isn't already on the
-    plan is added as a fresh, unfinished entry. This works on *any* plan,
-    not just the most recent one — today's plan stays fully editable even
-    after tomorrow's has been sent and become the newer generation."""
+    plan is added as a fresh, unfinished entry, with a note if one was
+    given for it. An item that's already on the plan and stays selected
+    gets its note updated in place (regardless of done state — a note is
+    just an instruction, not tied to completion). This works on *any*
+    plan, not just the most recent one — today's plan stays fully editable
+    even after tomorrow's has been sent and become the newer generation."""
+    notes = notes or {}
     with get_conn() as conn:
         existing = conn.execute(
             """
@@ -262,12 +275,17 @@ def update_plan(plan_id: int, library_item_ids: list[int]) -> None:
         ).fetchall()
 
         selected = set(library_item_ids)
-        existing_lib_ids = {r["library_item_id"] for r in existing}
+        existing_by_lib_id = {r["library_item_id"]: r for r in existing}
 
         for row in existing:
             if not row["done"] and row["library_item_id"] not in selected:
                 conn.execute("DELETE FROM item_state WHERE item_id = ?", (row["id"],))
                 conn.execute("DELETE FROM plan_items WHERE id = ?", (row["id"],))
+            elif row["library_item_id"] in selected:
+                conn.execute(
+                    "UPDATE plan_items SET note = ? WHERE id = ?",
+                    (notes.get(row["library_item_id"]), row["id"]),
+                )
 
         next_sort_row = conn.execute(
             "SELECT COALESCE(MAX(sort_order), -1) AS m FROM plan_items WHERE plan_id = ?",
@@ -275,11 +293,11 @@ def update_plan(plan_id: int, library_item_ids: list[int]) -> None:
         ).fetchone()
         next_sort = next_sort_row["m"] + 1
         for library_item_id in library_item_ids:
-            if library_item_id in existing_lib_ids:
+            if library_item_id in existing_by_lib_id:
                 continue
             item_cur = conn.execute(
-                "INSERT INTO plan_items (plan_id, library_item_id, sort_order) VALUES (?, ?, ?)",
-                (plan_id, library_item_id, next_sort),
+                "INSERT INTO plan_items (plan_id, library_item_id, sort_order, note) VALUES (?, ?, ?, ?)",
+                (plan_id, library_item_id, next_sort, notes.get(library_item_id)),
             )
             conn.execute(
                 "INSERT INTO item_state (item_id, done) VALUES (?, 0)",
@@ -326,15 +344,18 @@ def get_plan_id_for_item(item_id: int):
         return row["plan_id"] if row else None
 
 
-def get_plan_library_item_ids(plan_id):
-    """library_item_ids currently on plan_id, or [] if plan_id is None/has none."""
+def get_plan_selection(plan_id):
+    """[{"id": library_item_id, "note": note_or_None}, ...] currently on
+    plan_id, or [] if plan_id is None — used to restore the boss's
+    selection (and any notes) when re-opening a plan that's already been
+    sent."""
     if plan_id is None:
         return []
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT DISTINCT library_item_id FROM plan_items WHERE plan_id = ?", (plan_id,)
+            "SELECT library_item_id, note FROM plan_items WHERE plan_id = ?", (plan_id,)
         ).fetchall()
-        return [r["library_item_id"] for r in rows]
+        return [{"id": r["library_item_id"], "note": r["note"]} for r in rows]
 
 
 def list_plans(today_iso: str):
@@ -374,9 +395,9 @@ def get_plan_items(plan_id: int):
         rows = conn.execute(
             """
             SELECT plan_items.id, library_items.villa, library_items.section,
-                   library_items.text, plan_items.sort_order, item_state.done,
-                   item_state.user_name, item_state.done_at, item_state.media_type,
-                   item_state.media_file_id
+                   library_items.text, plan_items.sort_order, plan_items.note,
+                   item_state.done, item_state.user_name, item_state.done_at,
+                   item_state.media_type, item_state.media_file_id
             FROM plan_items
             JOIN library_items ON library_items.id = plan_items.library_item_id
             JOIN item_state ON item_state.item_id = plan_items.id
@@ -392,6 +413,7 @@ def get_plan_items(plan_id: int):
             "villa": r["villa"],
             "section": r["section"],
             "text": r["text"],
+            "note": r["note"],
             "done": bool(r["done"]),
             "done_by": r["user_name"],
             "done_at": r["done_at"],

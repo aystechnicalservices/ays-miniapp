@@ -501,10 +501,14 @@ This starts the web server and the bot (polling) together. Leave it running.
    villa's **Select all** / **Deselect all** (in that villa's header) to
    toggle every item in it at once. Tap **Change** to rename it in place
    (fixes a typo everywhere it's ever appeared, archive included — see
-   `rename_library_item` in [`app/db.py`](app/db.py)). Tap the **×** to
-   delete an item from the library entirely, any time — if it's finished on
-   the live checklist it stays there regardless; see "Sending vs. updating"
-   below.
+   `rename_library_item` in [`app/db.py`](app/db.py)). Tap **Note** to
+   attach a one-off instruction to this specific send only (e.g. "assigned
+   to Yadvinder, budget 2 hours") — it shows to the crew on the checklist
+   but never touches the reusable library item's own text, so it doesn't
+   linger into future plans; leave the prompt blank to remove it. Tap the
+   **×** to delete an item from the library entirely, any time — if it's
+   finished on the live checklist it stays there regardless; see "Sending
+   vs. updating" below.
 5. The heading (e.g. "Today: 03/09/2026") is clickable — tap it to switch
    to **Tomorrow** and back. Whichever is showing is what **Send now**
    applies to.

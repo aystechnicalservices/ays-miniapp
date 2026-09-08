@@ -23,6 +23,7 @@ const sendNowBtn = document.getElementById("send-now-btn");
 const initData = tg ? tg.initData : "";
 
 let selectedIds = new Set();
+let selectedNotes = new Map(); // library_item_id -> note text, for this send only
 let latestLibrary = [];
 let latestBossState = null;
 let selectedTarget = "today"; // "today" | "tomorrow" — which date we're editing
@@ -167,7 +168,25 @@ function renderItem(item) {
   text.className = "item-text";
   text.textContent = item.text;
   body.appendChild(text);
+  const note = selectedNotes.get(item.id);
+  if (note) {
+    const noteEl = document.createElement("div");
+    noteEl.className = "item-note";
+    noteEl.textContent = `📝 ${note}`;
+    body.appendChild(noteEl);
+  }
   row.appendChild(body);
+
+  const noteBtn = document.createElement("button");
+  noteBtn.type = "button";
+  noteBtn.className = "rename-btn";
+  noteBtn.textContent = note ? "Note ✓" : "Note";
+  noteBtn.setAttribute("aria-label", "Add a note for this send");
+  noteBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    editNote(item.id);
+  });
+  row.appendChild(noteBtn);
 
   const renameBtn = document.createElement("button");
   renameBtn.type = "button";
@@ -196,6 +215,23 @@ function renderItem(item) {
   return row;
 }
 
+function editNote(itemId) {
+  const current = selectedNotes.get(itemId) || "";
+  const text = window.prompt(
+    "Note for this send only (e.g. \"assigned to Yadvinder, budget 2 hours\") — leave blank to remove:",
+    current
+  );
+  if (text === null) return;
+  const trimmed = text.trim();
+  if (trimmed) {
+    selectedNotes.set(itemId, trimmed);
+    selectedIds.add(itemId); // a note only matters if the item is actually being sent
+  } else {
+    selectedNotes.delete(itemId);
+  }
+  render(latestLibrary);
+}
+
 function toggleSelect(itemId) {
   if (selectedIds.has(itemId)) {
     selectedIds.delete(itemId);
@@ -218,18 +254,22 @@ function updateHeading() {
   headingEl.textContent = `${targetLabel(selectedTarget)}: ${targetDate(latestBossState, selectedTarget)}`;
 }
 
-function selectionForTarget(data, target) {
-  const ids = target === "tomorrow" ? data.tomorrow_active_ids : data.today_active_ids;
-  return new Set(ids);
+function applySelectionForTarget(data, target) {
+  const items = target === "tomorrow" ? data.tomorrow_active_items : data.today_active_items;
+  selectedIds = new Set(items.map((i) => i.id));
+  selectedNotes = new Map(items.filter((i) => i.note).map((i) => [i.id, i.note]));
 }
 
 function applyBossState(data, resetSelection) {
   latestBossState = data;
   if (resetSelection) {
-    selectedIds = selectionForTarget(data, selectedTarget);
+    applySelectionForTarget(data, selectedTarget);
   } else {
     const validIds = new Set(data.library.map((i) => i.id));
     selectedIds = new Set([...selectedIds].filter((id) => validIds.has(id)));
+    for (const id of [...selectedNotes.keys()]) {
+      if (!selectedIds.has(id)) selectedNotes.delete(id);
+    }
   }
   updateHeading();
   render(data.library);
@@ -238,7 +278,7 @@ function applyBossState(data, resetSelection) {
 headingEl.addEventListener("click", () => {
   if (!latestBossState) return;
   selectedTarget = selectedTarget === "today" ? "tomorrow" : "today";
-  selectedIds = selectionForTarget(latestBossState, selectedTarget);
+  applySelectionForTarget(latestBossState, selectedTarget);
   updateHeading();
   render(latestBossState.library);
 });
@@ -403,10 +443,11 @@ async function sendPlan() {
   if (busy) return;
   busy = true;
   try {
+    const notes = Object.fromEntries([...selectedNotes].map(([id, note]) => [String(id), note]));
     const res = await fetch("/api/boss/send-plan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ init_data: initData, item_ids: [...selectedIds], target: selectedTarget }),
+      body: JSON.stringify({ init_data: initData, item_ids: [...selectedIds], notes, target: selectedTarget }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));

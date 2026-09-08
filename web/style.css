@@ -178,6 +178,13 @@ h1 {
   margin-top: 3px;
 }
 
+.item-note {
+  font-size: 12px;
+  color: var(--link);
+  margin-top: 3px;
+  font-style: italic;
+}
+
 .media-icon {
   flex: none;
   width: 34px;

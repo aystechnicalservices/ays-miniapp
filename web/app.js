@@ -132,6 +132,13 @@ function renderItem(item) {
   text.textContent = item.text;
   body.appendChild(text);
 
+  if (item.note) {
+    const noteEl = document.createElement("div");
+    noteEl.className = "item-note";
+    noteEl.textContent = `📝 ${item.note}`;
+    body.appendChild(noteEl);
+  }
+
   if (item.done) {
     const meta = document.createElement("div");
     meta.className = "item-meta";
