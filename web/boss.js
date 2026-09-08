@@ -277,7 +277,7 @@ aiAddForm.addEventListener("submit", async (e) => {
   const originalLabel = submitBtn.textContent;
   busy = true;
   submitBtn.disabled = true;
-  submitBtn.textContent = "Thinking...";
+  submitBtn.textContent = "Thinking... (up to 1 min)";
   try {
     const res = await fetch("/api/boss/library/ai-add", {
       method: "POST",

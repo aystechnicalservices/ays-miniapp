@@ -31,7 +31,13 @@ _ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:gen
 # didn't. Update when Google deprecates this one too (it'll 404 with a
 # message naming the replacement, same as it did for 2.0/2.5).
 _MODEL = "gemini-3.6-flash"
-_TIMEOUT = 30.0
+# This model reasons internally before answering (its responses carry a
+# thoughtSignature) — a genuinely ambiguous judgment call (same location,
+# different action, e.g. "clean" vs. "check for leaks" on the pump room)
+# measured 46.8s in testing. 30s was cutting those off and forcing an
+# unnecessary fallback; 90s gives real headroom without leaving a request
+# hanging indefinitely.
+_TIMEOUT = 90.0
 
 
 async def ask_gemini(prompt: str):
